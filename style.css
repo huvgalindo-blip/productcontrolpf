@@ -1,0 +1,537 @@
+/* ================================================
+   ESTILOS PRINCIPALES - Control Producción
+   Quality Pizzafresh
+   ================================================ */
+
+/* ================================================
+   1. RESET Y VARIABLES
+   ================================================ */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --primary: #F7941E;
+    --primary-dark: #D67D0A;
+    --secondary: #2D2D2D;
+    --bg-light: #F5F5F5;
+    --bg-white: #FFFFFF;
+    --text-dark: #333333;
+    --text-light: #777777;
+    --border-color: #E0E0E0;
+    --success: #4CAF50;
+    --error: #F44336;
+    --warning: #FF9800;
+    --shadow: 0 2px 8px rgba(0,0,0,0.1);
+    --radius: 8px;
+    --transition: all 0.3s ease;
+}
+
+/* ================================================
+   2. ESTILOS GLOBALES
+   ================================================ */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-light);
+    color: var(--text-dark);
+    line-height: 1.6;
+}
+
+/* ================================================
+   3. NAVEGACIÓN
+   ================================================ */
+#navbar {
+    background: var(--secondary);
+    color: white;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    min-height: 60px;
+}
+
+.nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.logo {
+    font-size: 1.8rem;
+}
+
+.brand-name {
+    color: var(--primary);
+}
+
+.nav-links {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    padding: 10px 0;
+}
+
+.nav-btn {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: var(--transition);
+}
+
+.nav-btn:hover {
+    background: rgba(255,255,255,0.1);
+    color: white;
+}
+
+.nav-btn.active {
+    background: var(--primary);
+    color: white;
+}
+
+.nav-hamburger {
+    display: none;
+    flex-direction: column;
+    gap: 5px;
+    cursor: pointer;
+    padding: 5px;
+}
+
+.nav-hamburger span {
+    display: block;
+    width: 25px;
+    height: 3px;
+    background: white;
+    border-radius: 2px;
+    transition: var(--transition);
+}
+
+/* ================================================
+   4. CONTENIDO PRINCIPAL
+   ================================================ */
+#main-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* ================================================
+   5. VISTAS
+   ================================================ */
+.vista {
+    display: none;
+    animation: fadeIn 0.3s ease;
+}
+
+.vista.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.vista-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid var(--primary);
+}
+
+.vista-header h2 {
+    color: var(--secondary);
+    font-size: 1.5rem;
+}
+
+.vista-header .subtitle {
+    color: var(--text-light);
+    font-size: 0.9rem;
+}
+
+/* ================================================
+   6. TABLAS
+   ================================================ */
+.tabla-container {
+    overflow-x: auto;
+    background: var(--bg-white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+table th {
+    background: var(--secondary);
+    color: white;
+    padding: 10px 12px;
+    text-align: left;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+}
+
+table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+table tr:hover {
+    background: #FAFAFA;
+}
+
+table tr.finalizado {
+    background: #E8F5E9;
+    opacity: 0.8;
+}
+
+table td input[type="number"] {
+    width: 60px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+table td select {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: white;
+    min-width: 120px;
+    font-size: 0.9rem;
+}
+
+table td .total-cell {
+    font-weight: bold;
+    color: var(--primary);
+    text-align: center;
+}
+
+/* ================================================
+   7. FORMULARIOS
+   ================================================ */
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    transition: var(--transition);
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(247, 148, 30, 0.2);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+/* ================================================
+   8. BOTONES
+   ================================================ */
+.btn {
+    padding: 8px 20px;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--primary-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow);
+}
+
+.btn-secondary {
+    background: var(--secondary);
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #444;
+}
+
+.btn-success {
+    background: var(--success);
+    color: white;
+}
+
+.btn-success:hover {
+    background: #388E3C;
+}
+
+.btn-danger {
+    background: var(--error);
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #D32F2F;
+}
+
+.btn-sm {
+    padding: 4px 12px;
+    font-size: 0.8rem;
+}
+
+.btn-outline {
+    background: transparent;
+    border: 2px solid var(--primary);
+    color: var(--primary);
+}
+
+.btn-outline:hover {
+    background: var(--primary);
+    color: white;
+}
+
+/* ================================================
+   9. RESÚMENES Y TARJETAS
+   ================================================ */
+.resumen-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    margin: 15px 0;
+}
+
+.resumen-card {
+    background: var(--bg-white);
+    padding: 15px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    text-align: center;
+}
+
+.resumen-card .label {
+    font-size: 0.8rem;
+    color: var(--text-light);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.resumen-card .value {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: var(--secondary);
+    margin-top: 4px;
+}
+
+.resumen-card .value.primary {
+    color: var(--primary);
+}
+.resumen-card .value.success {
+    color: var(--success);
+}
+.resumen-card .value.danger {
+    color: var(--error);
+}
+
+/* ================================================
+   10. NOTIFICACIONES
+   ================================================ */
+.notification {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    padding: 15px 25px;
+    border-radius: var(--radius);
+    color: white;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 9999;
+    max-width: 400px;
+    animation: slideIn 0.3s ease;
+}
+
+.notification.success {
+    background: var(--success);
+}
+.notification.error {
+    background: var(--error);
+}
+.notification.warning {
+    background: var(--warning);
+}
+.notification.info {
+    background: var(--primary);
+}
+
+.notification.hidden {
+    display: none;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* ================================================
+   11. RESPONSIVE
+   ================================================ */
+/* Móviles pequeños */
+@media (max-width: 320px) {
+    .nav-brand {
+        font-size: 0.9rem;
+    }
+    .nav-btn {
+        font-size: 0.75rem;
+        padding: 4px 10px;
+    }
+    table td input[type="number"] {
+        width: 40px;
+        font-size: 0.8rem;
+    }
+    table td select {
+        min-width: 80px;
+        font-size: 0.8rem;
+    }
+    .resumen-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .vista-header h2 {
+        font-size: 1.1rem;
+    }
+}
+
+/* Tablets y móviles grandes */
+@media (max-width: 768px) {
+    .nav-hamburger {
+        display: flex;
+    }
+    .nav-links {
+        display: none;
+        width: 100%;
+        flex-direction: column;
+        gap: 2px;
+        padding: 10px 0;
+    }
+    .nav-links.open {
+        display: flex;
+    }
+    .nav-btn {
+        width: 100%;
+        text-align: left;
+        padding: 10px 16px;
+    }
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    .resumen-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    table {
+        font-size: 0.8rem;
+    }
+    table td input[type="number"] {
+        width: 50px;
+    }
+    .tabla-container {
+        padding: 10px;
+        margin: 0 -10px 15px -10px;
+        border-radius: 0;
+    }
+}
+
+/* Desktop */
+@media (min-width: 769px) {
+    .nav-links {
+        display: flex !important;
+    }
+    .resumen-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+}
+
+/* ================================================
+   12. UTILIDADES
+   ================================================ */
+.text-center {
+    text-align: center;
+}
+.text-right {
+    text-align: right;
+}
+.mt-10 {
+    margin-top: 10px;
+}
+.mb-10 {
+    margin-bottom: 10px;
+}
+.mt-20 {
+    margin-top: 20px;
+}
+.mb-20 {
+    margin-bottom: 20px;
+}
+.flex {
+    display: flex;
+}
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.gap-10 {
+    gap: 10px;
+}
+.gap-20 {
+    gap: 20px;
+}
+.w-full {
+    width: 100%;
+}

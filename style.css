@@ -535,3 +535,77 @@ table td .total-cell {
 .w-full {
     width: 100%;
 }
+
+/* ================================================
+   ESTILOS PARA LA VISTA DE COMPARATIVA
+   ================================================ */
+
+/* Efecto hover en gráficos */
+#comparativa-resultados .resumen-grid .resumen-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+#comparativa-resultados .resumen-grid .resumen-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+/* Estilos para la tabla de comparativa */
+#comparativa-resultados table td {
+    font-size: 0.85rem;
+}
+
+#comparativa-resultados table th {
+    font-size: 0.8rem;
+}
+
+/* Animación para los gráficos */
+@keyframes growBar {
+    from { height: 0; }
+    to { height: var(--altura-final); }
+}
+
+#comparativa-resultados .barra-grafico {
+    animation: growBar 0.8s ease-out;
+}
+
+/* Scroll horizontal para la tabla en móvil */
+@media (max-width: 768px) {
+    #comparativa-resultados .tabla-container {
+        overflow-x: auto;
+    }
+    #comparativa-resultados table {
+        font-size: 0.7rem;
+        min-width: 600px;
+    }
+    #comparativa-resultados table td,
+    #comparativa-resultados table th {
+        padding: 4px 6px;
+    }
+}
+
+/* Estilos para el selector de fechas */
+#comparativa-resultados .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    align-items: end;
+}
+
+@media (max-width: 480px) {
+    #comparativa-resultados .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Tooltip para gráficos */
+.grafico-tooltip {
+    position: absolute;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    pointer-events: none;
+    z-index: 10;
+}

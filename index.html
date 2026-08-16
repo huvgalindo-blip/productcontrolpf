@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quality Pizzafresh - Control Producción</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍕</text></svg>">
+</head>
+<body>
+    <!-- ============================================= -->
+    <!-- 1. CONTENEDOR PRINCIPAL                        -->
+    <!-- ============================================= -->
+    <div id="app">
+        <!-- ========================================= -->
+        <!-- 1.1 NAVEGACIÓN                            -->
+        <!-- ========================================= -->
+        <nav id="navbar">
+            <div class="nav-brand">
+                <span class="logo">🍕</span>
+                <span class="brand-name">Quality Pizzafresh</span>
+            </div>
+            <div class="nav-links">
+                <button class="nav-btn active" data-vista="produccion">📋 Producción</button>
+                <button class="nav-btn" data-vista="dashboard">📊 Dashboard</button>
+                <button class="nav-btn" data-vista="clientes">👥 Clientes</button>
+                <button class="nav-btn" data-vista="productos">📦 Productos</button>
+                <button class="nav-btn" data-vista="configuracion">⚙️ Config</button>
+            </div>
+            <div class="nav-hamburger" onclick="toggleMenu()">
+                <span></span><span></span><span></span>
+            </div>
+        </nav>
+
+        <!-- ========================================= -->
+        <!-- 1.2 CONTENIDO PRINCIPAL                   -->
+        <!-- ========================================= -->
+        <main id="main-content">
+            <!-- Cada vista se renderizará aquí dinámicamente -->
+            <div id="vista-container"></div>
+        </main>
+
+        <!-- ========================================= -->
+        <!-- 1.3 NOTIFICACIONES                        -->
+        <!-- ========================================= -->
+        <div id="notification" class="notification hidden"></div>
+    </div>
+
+    <!-- ============================================= -->
+    <!-- 2. SCRIPTS                                    -->
+    <!-- ============================================= -->
+    <script src="app.js"></script>
+</body>
+</html>

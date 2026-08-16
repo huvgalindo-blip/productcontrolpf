@@ -1602,3 +1602,405 @@ function inicializarApp() {
 
 // Iniciar la aplicación cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', inicializarApp);
+
+// ============================================================
+// NUEVA FUNCIONALIDAD: COMPARATIVA DE PRODUCCIÓN
+// ============================================================
+
+/**
+ * Renderiza la vista de comparativa de producción
+ */
+function renderizarComparativa() {
+    const container = document.getElementById('vista-container');
+    const datos = cargarDatos();
+
+    // Obtener fechas por defecto (últimos 30 días)
+    const hoy = new Date();
+    const hace30Dias = new Date(hoy);
+    hace30Dias.setDate(hoy.getDate() - 30);
+
+    const fechaFin = hoy.toISOString().split('T')[0];
+    const fechaInicio = hace30Dias.toISOString().split('T')[0];
+
+    let html = `
+        <!-- ======================================= -->
+        <!-- VISTA: COMPARATIVA DE PRODUCCIÓN       -->
+        <!-- ======================================= -->
+        <div class="vista active">
+            <div class="vista-header">
+                <div>
+                    <h2>📈 Comparativa de Producción</h2>
+                    <span class="subtitle">Análisis histórico de producción</span>
+                </div>
+            </div>
+
+            <!-- ======================================= -->
+            <!-- SELECTOR DE FECHAS                     -->
+            <!-- ======================================= -->
+            <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="comparativa-fecha-inicio">Fecha Inicio</label>
+                        <input type="date" id="comparativa-fecha-inicio" value="${fechaInicio}">
+                    </div>
+                    <div class="form-group">
+                        <label for="comparativa-fecha-fin">Fecha Fin</label>
+                        <input type="date" id="comparativa-fecha-fin" value="${fechaFin}">
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: flex-end;">
+                        <button class="btn btn-primary" onclick="actualizarComparativa()">🔍 Actualizar</button>
+                        <button class="btn btn-secondary" onclick="exportarCSVComparativa()" style="margin-left: 10px;">📥 Exportar CSV</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======================================= -->
+            <!-- CONTENEDOR DE RESULTADOS               -->
+            <!-- ======================================= -->
+            <div id="comparativa-resultados">
+                <!-- Los resultados se cargarán aquí -->
+            </div>
+        </div>
+    `;
+
+    container.innerHTML = html;
+
+    // Cargar los datos iniciales
+    actualizarComparativa();
+}
+
+/**
+ * Actualiza la comparativa con las fechas seleccionadas
+ */
+function actualizarComparativa() {
+    const fechaInicio = document.getElementById('comparativa-fecha-inicio').value;
+    const fechaFin = document.getElementById('comparativa-fecha-fin').value;
+
+    if (!fechaInicio || !fechaFin) {
+        mostrarNotificacion('Selecciona ambas fechas', 'error');
+        return;
+    }
+
+    if (fechaInicio > fechaFin) {
+        mostrarNotificacion('La fecha de inicio no puede ser mayor que la fecha fin', 'error');
+        return;
+    }
+
+    const datos = cargarDatos();
+    const resultados = obtenerDatosComparativa(datos, fechaInicio, fechaFin);
+    renderizarResultadosComparativa(resultados, fechaInicio, fechaFin);
+}
+
+/**
+ * Obtiene los datos de producción para un rango de fechas
+ */
+function obtenerDatosComparativa(datos, fechaInicio, fechaFin) {
+    const resultados = [];
+    let fechaActual = new Date(fechaInicio);
+    const fechaFinObj = new Date(fechaFin);
+
+    while (fechaActual <= fechaFinObj) {
+        const fechaStr = fechaActual.toISOString().split('T')[0];
+        const produccion = datos.produccion[fechaStr];
+        const diaSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][fechaActual.getDay()];
+
+        let unidades = 0;
+        let ventas = 0;
+        let costeMP = 0;
+        let costeMOD = 0;
+        let costeTotal = 0;
+        let margen = 0;
+        let pedidosCount = 0;
+
+        if (produccion && produccion.pedidos && produccion.pedidos.length > 0) {
+            const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
+            unidades = Object.values(ventasDiarias).reduce((a, b) => a + b, 0);
+            ventas = calcularVentasGeneradas(datos, ventasDiarias);
+            costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
+            costeMOD = parseFloat(produccion.horasTrabajadas) * parseFloat(datos.configuracion.costeManoObraHora);
+            costeTotal = costeMP + costeMOD;
+            margen = calcularMargen(ventas, costeTotal);
+            pedidosCount = produccion.pedidos.length;
+        }
+
+        resultados.push({
+            fecha: fechaStr,
+            diaSemana: diaSemana,
+            unidades: unidades,
+            ventas: ventas,
+            costeMP: costeMP,
+            costeMOD: costeMOD,
+            costeTotal: costeTotal,
+            margen: margen,
+            pedidos: pedidosCount,
+            tieneDatos: produccion && produccion.pedidos && produccion.pedidos.length > 0
+        });
+
+        fechaActual.setDate(fechaActual.getDate() + 1);
+    }
+
+    return resultados;
+}
+
+/**
+ * Renderiza los resultados de la comparativa con gráficos
+ */
+function renderizarResultadosComparativa(resultados, fechaInicio, fechaFin) {
+    const container = document.getElementById('comparativa-resultados');
+
+    // Calcular totales
+    const totalUnidades = resultados.reduce((sum, r) => sum + r.unidades, 0);
+    const totalVentas = resultados.reduce((sum, r) => sum + r.ventas, 0);
+    const totalCoste = resultados.reduce((sum, r) => sum + r.costeTotal, 0);
+    const totalPedidos = resultados.reduce((sum, r) => sum + r.pedidos, 0);
+    const diasConDatos = resultados.filter(r => r.tieneDatos).length;
+    const totalDias = resultados.length;
+    const mediaUnidades = diasConDatos > 0 ? Math.round(totalUnidades / diasConDatos) : 0;
+    const margenTotal = totalVentas > 0 ? Math.round(((totalVentas - totalCoste) / totalVentas) * 10000) / 100 : 0;
+    const maxUnidades = Math.max(...resultados.map(r => r.unidades), 1);
+    const maxVentas = Math.max(...resultados.map(r => r.ventas), 1);
+
+    let html = `
+        <!-- ======================================= -->
+        <!-- RESULTADOS Y GRÁFICOS                   -->
+        <!-- ======================================= -->
+
+        <!-- Resumen del período -->
+        <div class="resumen-grid" style="margin-bottom: 20px;">
+            <div class="resumen-card">
+                <div class="label">Días analizados</div>
+                <div class="value">${totalDias} (${diasConDatos} con datos)</div>
+            </div>
+            <div class="resumen-card">
+                <div class="label">Total Unidades</div>
+                <div class="value primary">${totalUnidades}</div>
+            </div>
+            <div class="resumen-card">
+                <div class="label">Media diaria</div>
+                <div class="value">${mediaUnidades} uds</div>
+            </div>
+            <div class="resumen-card">
+                <div class="label">Total Pedidos</div>
+                <div class="value">${totalPedidos}</div>
+            </div>
+            <div class="resumen-card">
+                <div class="label">Total Ventas</div>
+                <div class="value success">${totalVentas.toFixed(2)} €</div>
+            </div>
+            <div class="resumen-card">
+                <div class="label">Total Costes</div>
+                <div class="value">${totalCoste.toFixed(2)} €</div>
+            </div>
+            <div class="resumen-card">
+                <div class="label">Margen Período</div>
+                <div class="value ${margenTotal > 0 ? 'success' : 'danger'}">${margenTotal}%</div>
+            </div>
+        </div>
+
+        <!-- Gráfico: Unidades producidas -->
+        <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            <h3>📊 Unidades Producidas por Día</h3>
+            <div style="display: flex; align-items: flex-end; height: 200px; gap: 4px; padding-top: 10px; border-bottom: 2px solid #ddd;">
+    `;
+
+    resultados.forEach((r, index) => {
+        const altura = r.unidades > 0 ? (r.unidades / maxUnidades) * 180 : 2;
+        const color = r.tieneDatos ? '#F7941E' : '#E0E0E0';
+        const tooltip = r.tieneDatos 
+            ? `${r.fecha}: ${r.unidades} uds, ${r.ventas.toFixed(2)} €`
+            : `${r.fecha}: Sin datos`;
+
+        html += `
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 20px;">
+                <div style="width: 100%; min-width: 12px; max-width: 40px; height: ${altura}px; background: ${color}; border-radius: 4px 4px 0 0; transition: all 0.3s; position: relative; cursor: pointer;"
+                     onmouseover="this.style.opacity='0.8'"
+                     onmouseout="this.style.opacity='1'"
+                     title="${tooltip}">
+                    <span style="position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #333; font-weight: bold; display: ${r.unidades > 0 ? 'block' : 'none'};">
+                        ${r.unidades}
+                    </span>
+                </div>
+                <span style="font-size: 8px; margin-top: 4px; text-align: center; color: #666; writing-mode: vertical-lr; transform: rotate(0deg);">
+                    ${r.fecha.split('-')[2]}/${r.fecha.split('-')[1]}
+                </span>
+            </div>
+        `;
+    });
+
+    html += `
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px; color: #999;">
+                <span>${resultados[0]?.fecha || ''}</span>
+                <span>${resultados[resultados.length - 1]?.fecha || ''}</span>
+            </div>
+            <div style="display: flex; gap: 20px; margin-top: 10px; font-size: 12px;">
+                <span><span style="display: inline-block; width: 12px; height: 12px; background: #F7941E; border-radius: 2px; vertical-align: middle;"></span> Con datos</span>
+                <span><span style="display: inline-block; width: 12px; height: 12px; background: #E0E0E0; border-radius: 2px; vertical-align: middle;"></span> Sin datos</span>
+            </div>
+        </div>
+
+        <!-- Tabla de datos detallada -->
+        <div class="tabla-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Día</th>
+                        <th>Pedidos</th>
+                        <th>Unidades</th>
+                        <th>Ventas (€)</th>
+                        <th>Coste MP (€)</th>
+                        <th>Coste MOD (€)</th>
+                        <th>Coste Total (€)</th>
+                        <th>Margen</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    resultados.forEach(r => {
+        const margenColor = r.margen > 30 ? 'var(--success)' : r.margen > 15 ? 'var(--warning)' : 'var(--error)';
+        html += `
+            <tr style="${r.tieneDatos ? '' : 'opacity: 0.4;'}">
+                <td><strong>${r.fecha}</strong></td>
+                <td>${r.diaSemana}</td>
+                <td>${r.pedidos}</td>
+                <td><strong>${r.unidades}</strong></td>
+                <td style="color: var(--success);">${r.ventas.toFixed(2)}</td>
+                <td>${r.costeMP.toFixed(2)}</td>
+                <td>${r.costeMOD.toFixed(2)}</td>
+                <td>${r.costeTotal.toFixed(2)}</td>
+                <td style="color: ${margenColor}; font-weight: bold;">${r.margen}%</td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    container.innerHTML = html;
+}
+
+/**
+ * Exporta los datos de comparativa a CSV
+ */
+function exportarCSVComparativa() {
+    const fechaInicio = document.getElementById('comparativa-fecha-inicio').value;
+    const fechaFin = document.getElementById('comparativa-fecha-fin').value;
+
+    if (!fechaInicio || !fechaFin) {
+        mostrarNotificacion('Selecciona ambas fechas', 'error');
+        return;
+    }
+
+    const datos = cargarDatos();
+    const resultados = obtenerDatosComparativa(datos, fechaInicio, fechaFin);
+
+    // Crear contenido CSV
+    let csv = 'Fecha,Día,Pedidos,Unidades,Ventas (€),Coste MP (€),Coste MOD (€),Coste Total (€),Margen (%)\n';
+    resultados.forEach(r => {
+        csv += `${r.fecha},${r.diaSemana},${r.pedidos},${r.unidades},${r.ventas.toFixed(2)},${r.costeMP.toFixed(2)},${r.costeMOD.toFixed(2)},${r.costeTotal.toFixed(2)},${r.margen}\n`;
+    });
+
+    // Calcular totales para el resumen
+    const totalUnidades = resultados.reduce((sum, r) => sum + r.unidades, 0);
+    const totalVentas = resultados.reduce((sum, r) => sum + r.ventas, 0);
+    const totalCoste = resultados.reduce((sum, r) => sum + r.costeTotal, 0);
+    const totalPedidos = resultados.reduce((sum, r) => sum + r.pedidos, 0);
+    const diasConDatos = resultados.filter(r => r.tieneDatos).length;
+    const mediaUnidades = diasConDatos > 0 ? Math.round(totalUnidades / diasConDatos) : 0;
+    const margenTotal = totalVentas > 0 ? Math.round(((totalVentas - totalCoste) / totalVentas) * 10000) / 100 : 0;
+
+    // Añadir resumen al CSV
+    csv += '\n\nRESUMEN\n';
+    csv += `Días analizados,${resultados.length}\n`;
+    csv += `Días con datos,${diasConDatos}\n`;
+    csv += `Total Unidades,${totalUnidades}\n`;
+    csv += `Media diaria,${mediaUnidades}\n`;
+    csv += `Total Pedidos,${totalPedidos}\n`;
+    csv += `Total Ventas,${totalVentas.toFixed(2)}\n`;
+    csv += `Total Costes,${totalCoste.toFixed(2)}\n`;
+    csv += `Margen Período,${margenTotal}%\n`;
+
+    // Descargar archivo
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `comparativa_produccion_${fechaInicio}_a_${fechaFin}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+
+    mostrarNotificacion('CSV exportado correctamente', 'success');
+}
+
+// ============================================================
+// ACTUALIZAR NAVEGACIÓN PARA INCLUIR LA NUEVA VISTA
+// ============================================================
+
+/**
+ * Función para actualizar la navegación con la nueva pestaña
+ */
+function actualizarNavegacionConComparativa() {
+    const navLinks = document.querySelector('.nav-links');
+    if (navLinks && !document.querySelector('[data-vista="comparativa"]')) {
+        const btn = document.createElement('button');
+        btn.className = 'nav-btn';
+        btn.dataset.vista = 'comparativa';
+        btn.textContent = '📈 Comparativa';
+        btn.onclick = function() {
+            cambiarVista('comparativa');
+            document.querySelector('.nav-links').classList.remove('open');
+        };
+        navLinks.appendChild(btn);
+    }
+}
+
+// ============================================================
+// ACTUALIZAR FUNCIÓN cambiarVista
+// ============================================================
+
+// Sobrescribir la función cambiarVista para incluir la comparativa
+const cambiarVistaOriginal = window.cambiarVista;
+window.cambiarVista = function(vista) {
+    // Actualizar botones de navegación
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.vista === vista);
+    });
+
+    // Renderizar la vista correspondiente
+    switch (vista) {
+        case 'produccion':
+            renderizarProduccion();
+            break;
+        case 'dashboard':
+            renderizarDashboard();
+            break;
+        case 'comparativa':
+            renderizarComparativa();
+            break;
+        case 'clientes':
+            renderizarClientes();
+            break;
+        case 'productos':
+            renderizarProductos();
+            break;
+        case 'configuracion':
+            renderizarConfiguracion();
+            break;
+        default:
+            renderizarProduccion();
+    }
+};
+
+// ============================================================
+// INICIALIZACIÓN CON LA NUEVA NAVEGACIÓN
+// ============================================================
+
+// Añadir la nueva pestaña después de la inicialización
+document.addEventListener('DOMContentLoaded', function() {
+    // Esperar un poco para asegurar que la navegación está cargada
+    setTimeout(actualizarNavegacionConComparativa, 100);
+});

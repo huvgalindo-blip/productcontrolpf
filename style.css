@@ -609,3 +609,499 @@ table td .total-cell {
     pointer-events: none;
     z-index: 10;
 }
+/* ================================================
+   ESTILOS PARA LA VISTA DE ORDEN DE AMASADO
+   ================================================ */
+
+/* --------------------------------------------------
+   1. CONTENEDORES PRINCIPALES
+   -------------------------------------------------- */
+
+/* Contenedor de la orden de amasado */
+.amasado-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Tarjetas de sección */
+.amasado-section {
+    background: var(--bg-white);
+    padding: 20px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+}
+
+.amasado-section h3 {
+    color: var(--secondary);
+    margin-bottom: 15px;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* --------------------------------------------------
+   2. CABECERA DE LA ORDEN
+   -------------------------------------------------- */
+
+.amasado-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid var(--primary);
+    margin-bottom: 20px;
+}
+
+.amasado-header h2 {
+    color: var(--secondary);
+    font-size: 1.5rem;
+}
+
+.amasado-header .badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.badge-success {
+    background: #E8F5E9;
+    color: #2E7D32;
+}
+
+.badge-warning {
+    background: #FFF3E0;
+    color: #E65100;
+}
+
+.badge-danger {
+    background: #FFEBEE;
+    color: #C62828;
+}
+
+/* --------------------------------------------------
+   3. FORMULARIO DE DATOS GENERALES
+   -------------------------------------------------- */
+
+.amasado-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+}
+
+.amasado-form-grid .form-group {
+    margin-bottom: 0;
+}
+
+.amasado-form-grid label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-light);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.amasado-form-grid input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    transition: var(--transition);
+}
+
+.amasado-form-grid input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(247, 148, 30, 0.2);
+}
+
+.amasado-form-grid input:disabled {
+    background: #f5f5f5;
+    color: #999;
+}
+
+/* --------------------------------------------------
+   4. TABLA DE AMASADO
+   -------------------------------------------------- */
+
+.amasado-tabla {
+    overflow-x: auto;
+}
+
+.amasado-tabla table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.amasado-tabla th {
+    background: var(--secondary);
+    color: white;
+    padding: 10px 12px;
+    text-align: left;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.amasado-tabla td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.amasado-tabla tr:hover {
+    background: #FAFAFA;
+}
+
+.amasado-tabla .estado-completo {
+    color: var(--success);
+}
+
+.amasado-tabla .estado-incompleto {
+    color: var(--error);
+}
+
+/* Inputs numéricos en la tabla */
+.amasado-tabla input[type="number"] {
+    width: 60px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.amasado-tabla input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.amasado-tabla select {
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: white;
+    font-size: 0.9rem;
+}
+
+/* --------------------------------------------------
+   5. DISTRIBUCIÓN A PRODUCTOS
+   -------------------------------------------------- */
+
+.amasado-distribucion {
+    margin-top: 10px;
+}
+
+.amasado-distribucion-item {
+    border: 1px solid var(--border-color);
+    padding: 15px;
+    border-radius: var(--radius);
+    margin-top: 10px;
+    transition: var(--transition);
+}
+
+.amasado-distribucion-item.completo {
+    background: #F0FFF0;
+    border-color: var(--success);
+}
+
+.amasado-distribucion-item.incompleto {
+    background: #FFF8F8;
+    border-color: var(--error);
+}
+
+.amasado-distribucion-item h4 {
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+    color: var(--secondary);
+}
+
+.amasado-distribucion-item .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+}
+
+.amasado-distribucion-item .form-group label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-light);
+    display: block;
+    margin-bottom: 2px;
+}
+
+.amasado-distribucion-item .form-group input {
+    width: 80px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.amasado-distribucion-item .form-group input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.amasado-distribucion-item .estado-distribucion {
+    margin-top: 10px;
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+/* --------------------------------------------------
+   6. RESUMEN DE AMASADO
+   -------------------------------------------------- */
+
+.amasado-resumen {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin: 15px 0;
+}
+
+.amasado-resumen-card {
+    background: var(--bg-white);
+    padding: 15px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    text-align: center;
+    transition: var(--transition);
+}
+
+.amasado-resumen-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+.amasado-resumen-card .label {
+    font-size: 0.75rem;
+    color: var(--text-light);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.amasado-resumen-card .value {
+    font-size: 1.3rem;
+    font-weight: bold;
+    color: var(--secondary);
+    margin-top: 4px;
+}
+
+.amasado-resumen-card .value.primary {
+    color: var(--primary);
+}
+.amasado-resumen-card .value.success {
+    color: var(--success);
+}
+
+/* --------------------------------------------------
+   7. VALIDACIÓN
+   -------------------------------------------------- */
+
+.amasado-validacion {
+    padding: 15px;
+    border-radius: var(--radius);
+    margin-top: 20px;
+    border-left: 4px solid;
+}
+
+.amasado-validacion.valida {
+    background: #E8F5E9;
+    border-color: var(--success);
+}
+
+.amasado-validacion.invalida {
+    background: #FFF3E0;
+    border-color: var(--error);
+}
+
+.amasado-validacion .icono {
+    font-size: 1.2rem;
+    margin-right: 8px;
+}
+
+/* --------------------------------------------------
+   8. BOTONES ESPECÍFICOS
+   -------------------------------------------------- */
+
+.amasado-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+.btn-warning {
+    background: #FF9800;
+    color: white;
+}
+
+.btn-warning:hover {
+    background: #F57C00;
+}
+
+/* --------------------------------------------------
+   9. RESPONSIVE
+   -------------------------------------------------- */
+
+/* Tablets y móviles */
+@media (max-width: 768px) {
+    .amasado-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .amasado-form-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .amasado-resumen {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .amasado-distribucion-item .form-row {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .amasado-tabla {
+        font-size: 0.8rem;
+    }
+    
+    .amasado-tabla input[type="number"] {
+        width: 45px;
+        font-size: 0.8rem;
+    }
+    
+    .amasado-tabla select {
+        font-size: 0.8rem;
+        min-width: 60px;
+    }
+    
+    .amasado-actions {
+        flex-direction: column;
+    }
+    
+    .amasado-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Móviles pequeños */
+@media (max-width: 480px) {
+    .amasado-form-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .amasado-resumen {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .amasado-resumen-card .value {
+        font-size: 1rem;
+    }
+    
+    .amasado-distribucion-item .form-row {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .amasado-distribucion-item .form-group input {
+        width: 100%;
+    }
+    
+    .amasado-tabla table {
+        min-width: 600px;
+    }
+    
+    .amasado-tabla td,
+    .amasado-tabla th {
+        padding: 4px 6px;
+        font-size: 0.7rem;
+    }
+    
+    .amasado-tabla input[type="number"] {
+        width: 35px;
+    }
+}
+
+/* Desktop */
+@media (min-width: 1024px) {
+    .amasado-form-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+    
+    .amasado-resumen {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+}
+
+/* --------------------------------------------------
+   10. ANIMACIONES
+   -------------------------------------------------- */
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.amasado-pendiente {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* --------------------------------------------------
+   11. NOTIFICACIONES DE ESTADO
+   -------------------------------------------------- */
+
+.amasado-notificacion {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 24px;
+    border-radius: var(--radius);
+    color: white;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 9999;
+    max-width: 400px;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(100px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.amasado-notificacion.success {
+    background: var(--success);
+}
+.amasado-notificacion.error {
+    background: var(--error);
+}
+.amasado-notificacion.warning {
+    background: var(--warning);
+}
+
+/* --------------------------------------------------
+   12. CAMPOS DESHABILITADOS CUANDO ESTÁ APLICADO
+   -------------------------------------------------- */
+
+.amasado-aplicado .form-group input,
+.amasado-aplicado .form-group select,
+.amasado-aplicado .form-group textarea {
+    background: #f5f5f5;
+    color: #999;
+    cursor: not-allowed;
+}
+
+.amasado-aplicado .btn:not(.btn-secondary) {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

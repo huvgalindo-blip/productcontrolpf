@@ -1493,6 +1493,803 @@ function resetearDatos() {
 }
 
 // ============================================================
+// CONFIGURACIÓN DE AMASADO - Quality Pizzafresh
+// ============================================================
+// Esta configuración define todos los tipos de bolas, sus pesos,
+// formatos de caja y productos finales asociados.
+// ============================================================
+
+const CONFIGURACION_AMASADO = {
+    "Pequeña": {
+        peso: 160,
+        configuraciones: [
+            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8, 10, 11] },
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10, 11] }
+        ],
+        productosDestino: ["Pequeña", "M.Refinata", "Pequeña 25", "Allar 24x15"]
+    },
+    "Peq 190": {
+        peso: 190,
+        configuraciones: [
+            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8, 10, 11] },
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10, 11] }
+        ],
+        productosDestino: ["Peq 190", "cuad. 28x28"]
+    },
+    "Mediana": {
+        peso: 260,
+        configuraciones: [
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10] },
+            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] }
+        ],
+        productosDestino: ["Mediana", "Med.28", "P.Americana", "G.Refinata", "Med.32", "Allar 30x18"]
+    },
+    "Grande": {
+        peso: 460,
+        configuraciones: [
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [6] }
+        ],
+        productosDestino: ["Grande", "Med. America"]
+    },
+    "Plancha": {
+        peso: 600,
+        configuraciones: [
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [3] }
+        ],
+        productosDestino: ["Plancha", "G.America", "Grand 50"]
+    },
+    "Single": {
+        peso: 110,
+        configuraciones: [
+            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [15] }
+        ],
+        productosDestino: ["Single", "Piadina"]
+    },
+    "Grande 360": {
+        peso: 360,
+        configuraciones: [
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [6] }
+        ],
+        productosDestino: ["Med.35"]
+    },
+    "Pinsa Pequeña": {
+        peso: 160,
+        configuraciones: [
+            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] },
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8] }
+        ],
+        productosDestino: ["Pinsa Pequeña"]
+    },
+    "Pinsa Mediana": {
+        peso: 260,
+        configuraciones: [
+            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8] },
+            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] }
+        ],
+        productosDestino: ["Pinsa Mediana"]
+    }
+};
+
+function obtenerTiposBola() {
+    return Object.keys(CONFIGURACION_AMASADO);
+}
+
+function obtenerConfiguracionBola(tipo) {
+    return CONFIGURACION_AMASADO[tipo] || null;
+}
+
+function obtenerFechaSiguiente(fecha) {
+    const fechaObj = new Date(fecha);
+    fechaObj.setDate(fechaObj.getDate() + 1);
+    return fechaObj.toISOString().split('T')[0];
+}
+
+function obtenerHoraActual() {
+    const ahora = new Date();
+    return ahora.toTimeString().split(' ')[0].substring(0, 5);
+}
+
+function generarIdOrdenAmasado(fecha, numero) {
+    const fechaLimpia = fecha.replace(/-/g, '');
+    const numStr = String(numero).padStart(3, '0');
+    return `ORD-${fechaLimpia}-${numStr}`;
+}
+
+// ============================================================
+// SERVICIO DE ÓRDENES DE AMASADO
+// ============================================================
+
+function obtenerOrdenesAmasado(datos) {
+    if (!datos.ordenesAmasado) {
+        datos.ordenesAmasado = {};
+        guardarDatos(datos);
+    }
+    return datos.ordenesAmasado;
+}
+
+function obtenerOrdenAmasado(datos, fecha) {
+    const ordenes = obtenerOrdenesAmasado(datos);
+    
+    if (!ordenes[fecha]) {
+        const numOrdenes = Object.keys(ordenes).length;
+        
+        ordenes[fecha] = {
+            id: generarIdOrdenAmasado(fecha, numOrdenes + 1),
+            fechaAmasado: fecha,
+            fechaUso: obtenerFechaSiguiente(fecha),
+            operario: '',
+            horaInicio: obtenerHoraActual(),
+            horaFin: '',
+            temperatura: 22,
+            humedad: 55,
+            lineas: [],
+            totalBolas: 0,
+            pesoTotal: 0,
+            aplicadoAProduccion: false,
+            observaciones: '',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+        guardarDatos(datos);
+    }
+    
+    return ordenes[fecha];
+}
+
+function guardarOrdenAmasado(datos, fecha, orden) {
+    const ordenes = obtenerOrdenesAmasado(datos);
+    orden.updatedAt = new Date().toISOString();
+    ordenes[fecha] = orden;
+    guardarDatos(datos);
+}
+
+function eliminarOrdenAmasado(datos, fecha) {
+    const ordenes = obtenerOrdenesAmasado(datos);
+    if (ordenes[fecha]) {
+        delete ordenes[fecha];
+        guardarDatos(datos);
+        return true;
+    }
+    return false;
+}
+
+function validarOrdenAmasado(orden) {
+    const errores = [];
+    
+    if (!orden.operario || orden.operario.trim() === '') {
+        errores.push('El operario es obligatorio');
+    }
+    
+    if (!orden.lineas || orden.lineas.length === 0) {
+        errores.push('Debe haber al menos una línea de amasado');
+    } else {
+        orden.lineas.forEach((linea, index) => {
+            const total = linea.total || 0;
+            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+            
+            if (linea.cajas < 1) {
+                errores.push(`Línea ${index + 1}: El número de cajas debe ser mayor a 0`);
+            }
+            
+            if (asignado !== total) {
+                errores.push(`Línea ${index + 1}: Faltan ${total - asignado} bolas por asignar`);
+            }
+        });
+    }
+    
+    return {
+        valida: errores.length === 0,
+        errores: errores
+    };
+}
+
+function aplicarOrdenAProduccion(datos, fecha) {
+    const ordenes = obtenerOrdenesAmasado(datos);
+    const orden = ordenes[fecha];
+    
+    if (!orden) {
+        mostrarNotificacion('No se encontró la orden de amasado', 'error');
+        return false;
+    }
+    
+    const validacion = validarOrdenAmasado(orden);
+    if (!validacion.valida) {
+        mostrarNotificacion('La orden no está completa: ' + validacion.errores.join(', '), 'error');
+        return false;
+    }
+    
+    if (orden.aplicadoAProduccion) {
+        mostrarNotificacion('Esta orden ya fue aplicada a producción', 'warning');
+        return false;
+    }
+    
+    const fechaUso = orden.fechaUso;
+    
+    if (!datos.produccion) datos.produccion = {};
+    if (!datos.produccion[fechaUso]) {
+        datos.produccion[fechaUso] = {
+            inventarioInicial: {},
+            horasTrabajadas: 0,
+            pedidos: []
+        };
+    }
+    
+    const inventario = {};
+    orden.lineas.forEach(linea => {
+        if (linea.distribucion) {
+            Object.keys(linea.distribucion).forEach(producto => {
+                const cantidad = linea.distribucion[producto] || 0;
+                if (cantidad > 0) {
+                    inventario[producto] = (inventario[producto] || 0) + cantidad;
+                }
+            });
+        }
+    });
+    
+    datos.produccion[fechaUso].inventarioInicial = inventario;
+    orden.aplicadoAProduccion = true;
+    orden.aplicadoEn = new Date().toISOString();
+    
+    guardarDatos(datos);
+    return true;
+}
+
+function obtenerResumenOrdenAmasado(orden) {
+    let totalBolas = 0;
+    let pesoTotal = 0;
+    let totalCajas = 0;
+    let totalTorres = 0;
+    
+    if (orden.lineas) {
+        orden.lineas.forEach(linea => {
+            totalBolas += linea.total || 0;
+            pesoTotal += ((linea.total || 0) * linea.peso / 1000);
+            totalCajas += linea.cajas || 0;
+            totalTorres += 1;
+        });
+    }
+    
+    return {
+        totalBolas: totalBolas,
+        pesoTotal: Math.round(pesoTotal * 100) / 100,
+        totalCajas: totalCajas,
+        totalTorres: totalTorres,
+        tieneDistribucion: totalBolas > 0
+    };
+}
+
+// ============================================================
+// UI - ORDEN DE AMASADO
+// ============================================================
+
+function renderizarOrdenAmasado() {
+    const container = document.getElementById('vista-container');
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    const resumen = obtenerResumenOrdenAmasado(orden);
+    const validacion = validarOrdenAmasado(orden);
+    
+    let todasAsignadas = true;
+    let totalSinAsignar = 0;
+    
+    if (orden.lineas) {
+        orden.lineas.forEach(linea => {
+            const total = linea.total || 0;
+            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+            if (asignado !== total) {
+                todasAsignadas = false;
+                totalSinAsignar += (total - asignado);
+            }
+        });
+    }
+    
+    let html = `
+        <div class="vista active">
+            <div class="vista-header">
+                <div>
+                    <h2>🔄 Orden de Amasado</h2>
+                    <span class="subtitle">Registro de producción de masa para el día siguiente</span>
+                </div>
+                <div>
+                    <span class="subtitle" style="font-weight: bold; color: ${orden.aplicadoAProduccion ? 'var(--success)' : 'var(--warning)'};">
+                        ${orden.aplicadoAProduccion ? '✅ Aplicado a producción' : '⏳ Pendiente de aplicar'}
+                    </span>
+                </div>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>📅 Fecha Amasado</label>
+                        <input type="date" id="fecha-amasado" value="${fecha}" onchange="renderizarOrdenAmasado()">
+                    </div>
+                    <div class="form-group">
+                        <label>📅 Uso Previsto</label>
+                        <input type="text" id="fecha-uso" value="${orden.fechaUso}" readonly style="background: #f0f0f0; font-weight: bold;">
+                    </div>
+                    <div class="form-group">
+                        <label>👤 Operario</label>
+                        <input type="text" id="operario-amasado" value="${orden.operario || ''}" placeholder="Nombre del operario" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>⏰ Hora Inicio</label>
+                        <input type="time" id="hora-inicio" value="${orden.horaInicio || '08:00'}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    </div>
+                    <div class="form-group">
+                        <label>⏰ Hora Fin</label>
+                        <input type="time" id="hora-fin" value="${orden.horaFin || ''}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    </div>
+                    <div class="form-group">
+                        <label>🌡️ Temperatura (°C)</label>
+                        <input type="number" id="temp-amasado" value="${orden.temperatura || 22}" step="0.5" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    </div>
+                    <div class="form-group">
+                        <label>💧 Humedad (%)</label>
+                        <input type="number" id="humedad-amasado" value="${orden.humedad || 55}" step="1" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="tabla-container">
+                <div class="flex-between mb-10">
+                    <h3>📦 Bolas a Amasar</h3>
+                    ${!orden.aplicadoAProduccion ? `<button class="btn btn-primary btn-sm" onclick="mostrarModalLineaAmasado()">➕ Añadir Línea</button>` : ''}
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tipo Bola</th>
+                            <th>Peso</th>
+                            <th>Caja</th>
+                            <th>Nº Cajas</th>
+                            <th>Bolas/Caja</th>
+                            <th>Total</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+    
+    if (!orden.lineas || orden.lineas.length === 0) {
+        html += `
+            <tr>
+                <td colspan="7" class="text-center" style="padding: 30px; color: #999;">
+                    No hay líneas de amasado. Haz clic en "➕ Añadir Línea" para comenzar.
+                </td>
+            </tr>
+        `;
+    } else {
+        orden.lineas.forEach((linea, index) => {
+            const config = obtenerConfiguracionBola(linea.tipoBola);
+            const total = linea.total || 0;
+            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+            const estado = asignado === total ? '✅' : '⚠️';
+            
+            html += `
+                <tr>
+                    <td><strong>${linea.tipoBola}</strong></td>
+                    <td>${linea.peso}g</td>
+                    <td>${linea.tipoCaja}</td>
+                    <td>
+                        ${orden.aplicadoAProduccion ? linea.cajas : `
+                            <input type="number" min="1" max="${config ? config.configuraciones.find(c => c.tipoCaja === linea.tipoCaja)?.maxCajas || 25 : 25}" 
+                                   style="width: 60px;" value="${linea.cajas || 0}"
+                                   data-linea-index="${index}" data-campo="cajas"
+                                   onchange="actualizarLineaAmasado(${index}, 'cajas', this.value)">
+                        `}
+                    </td>
+                    <td>
+                        ${orden.aplicadoAProduccion ? linea.bolasPorCaja : `
+                            <select data-linea-index="${index}" data-campo="bolasPorCaja" 
+                                    onchange="actualizarLineaAmasado(${index}, 'bolasPorCaja', this.value)">
+                                ${(config ? config.configuraciones.find(c => c.tipoCaja === linea.tipoCaja)?.opcionesBolas || [8, 10] : [8, 10]).map(op => `
+                                    <option value="${op}" ${op == linea.bolasPorCaja ? 'selected' : ''}>${op}</option>
+                                `).join('')}
+                            </select>
+                        `}
+                    </td>
+                    <td><strong>${total}</strong> ${estado}</td>
+                    <td>
+                        ${!orden.aplicadoAProduccion ? `<button class="btn btn-danger btn-sm" onclick="eliminarLineaAmasado(${index})">🗑️</button>` : ''}
+                    </td>
+                </tr>
+            `;
+        });
+    }
+    
+    html += `
+                    </tbody>
+                </table>
+            </div>
+            
+            <div style="margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <div class="flex-between mb-10">
+                    <h3>📦 Distribución a Productos Finales</h3>
+                    <span style="font-size: 0.9rem; color: ${todasAsignadas ? 'var(--success)' : 'var(--error)'};">
+                        ${todasAsignadas ? '✅ Todas las bolas asignadas' : `⚠️ ${totalSinAsignar} bolas sin asignar`}
+                    </span>
+                </div>
+    `;
+    
+    if (orden.lineas && orden.lineas.length > 0) {
+        orden.lineas.forEach((linea, index) => {
+            const config = obtenerConfiguracionBola(linea.tipoBola);
+            const total = linea.total || 0;
+            const productosDestino = config ? config.productosDestino : [];
+            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+            const restante = total - asignado;
+            
+            html += `
+                <div style="border: 1px solid #eee; padding: 15px; border-radius: 8px; margin-top: 10px; background: ${restante === 0 && total > 0 ? '#F0FFF0' : '#FFF8F8'};">
+                    <h4>${linea.tipoBola} (${linea.peso}g) - Total: ${total} bolas</h4>
+                    <div class="form-row">
+            `;
+            
+            productosDestino.forEach(producto => {
+                const valor = linea.distribucion?.[producto] || 0;
+                html += `
+                    <div class="form-group">
+                        <label>${producto}</label>
+                        <input type="number" min="0" step="1" 
+                               style="width: 80px;" value="${valor}"
+                               data-linea-index="${index}" data-producto="${producto}"
+                               onchange="actualizarDistribucion(${index}, '${producto}', this.value)"
+                               ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    </div>
+                `;
+            });
+            
+            html += `
+                    </div>
+                    <div style="margin-top: 10px; font-weight: bold; color: ${restante === 0 ? 'var(--success)' : 'var(--error)'};">
+                        ${restante === 0 ? '✅ Todas las bolas asignadas' : `🔴 Restante sin asignar: ${restante} bolas`}
+                    </div>
+                </div>
+            `;
+        });
+    } else {
+        html += `
+            <div style="padding: 20px; color: #999; text-align: center;">
+                Añade líneas de amasado para distribuir las bolas a productos.
+            </div>
+        `;
+    }
+    
+    html += `
+            </div>
+            
+            <div class="resumen-grid" style="margin-top: 20px;">
+                <div class="resumen-card">
+                    <div class="label">Total Bolas</div>
+                    <div class="value primary">${resumen.totalBolas}</div>
+                </div>
+                <div class="resumen-card">
+                    <div class="label">Peso Total</div>
+                    <div class="value">${resumen.pesoTotal} kg</div>
+                </div>
+                <div class="resumen-card">
+                    <div class="label">Total Cajas</div>
+                    <div class="value">${resumen.totalCajas}</div>
+                </div>
+                <div class="resumen-card">
+                    <div class="label">Torres</div>
+                    <div class="value">${resumen.totalTorres}</div>
+                </div>
+            </div>
+            
+            ${!orden.aplicadoAProduccion ? `
+                <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};">
+                    ${validacion.valida ? 
+                        '✅ La orden está completa y lista para aplicar a producción' :
+                        '❌ ' + validacion.errores.join('. ')
+                    }
+                </div>
+            ` : ''}
+            
+            <div class="flex gap-10" style="margin-top: 20px; flex-wrap: wrap;">
+                ${!orden.aplicadoAProduccion ? `
+                    <button class="btn btn-primary" onclick="guardarOrdenAmasado()">💾 Guardar Orden</button>
+                    <button class="btn btn-success" onclick="aplicarOrdenAProduccionUI()">📥 Aplicar a Producción</button>
+                    <button class="btn btn-danger" onclick="eliminarOrdenAmasado()">🗑️ Eliminar Orden</button>
+                ` : `
+                    <button class="btn btn-secondary" onclick="renderizarOrdenAmasado()">🔄 Recargar</button>
+                    <button class="btn btn-warning" onclick="desaplicarOrdenAmasado()">↩️ Deshacer Aplicación</button>
+                `}
+                <button class="btn btn-secondary" onclick="exportarOrdenAmasado()">📥 Exportar CSV</button>
+            </div>
+            
+            ${orden.aplicadoAProduccion ? `
+                <div style="margin-top: 15px; padding: 15px; background: #E8F5E9; border-radius: 8px; border-left: 4px solid var(--success);">
+                    <p style="font-size: 0.9rem; color: #2E7D32;">
+                        ✅ Esta orden fue aplicada a producción el ${new Date(orden.aplicadoEn).toLocaleString()}
+                    </p>
+                </div>
+            ` : `
+                <div style="margin-top: 15px; padding: 15px; background: #FFF8E1; border-radius: 8px; border-left: 4px solid var(--warning);">
+                    <p style="font-size: 0.9rem; color: #666;">
+                        ℹ️ <strong>Nota:</strong> La orden se aplicará al inventario de producción del día <strong>${orden.fechaUso}</strong>.
+                        Asegúrate de que todas las bolas estén distribuidas correctamente antes de aplicar.
+                    </p>
+                </div>
+            `}
+        </div>
+    `;
+    
+    container.innerHTML = html;
+}
+
+// ============================================================
+// FUNCIONES DE INTERACCIÓN - ORDEN DE AMASADO
+// ============================================================
+
+function mostrarModalLineaAmasado() {
+    const tipos = obtenerTiposBola();
+    
+    let mensaje = 'Selecciona el tipo de bola:\n';
+    tipos.forEach((t, i) => {
+        mensaje += `${i+1}. ${t}\n`;
+    });
+    mensaje += '\n0. Cancelar';
+    
+    const seleccion = prompt(mensaje);
+    if (!seleccion || seleccion === '0') return;
+    
+    const index = parseInt(seleccion) - 1;
+    if (isNaN(index) || index < 0 || index >= tipos.length) {
+        mostrarNotificacion('Selección inválida', 'error');
+        return;
+    }
+    
+    const tipoSeleccionado = tipos[index];
+    const config = obtenerConfiguracionBola(tipoSeleccionado);
+    if (!config) {
+        mostrarNotificacion('Tipo de bola no encontrado', 'error');
+        return;
+    }
+    
+    let mensajeCaja = 'Selecciona el tipo de caja:\n';
+    config.configuraciones.forEach((c, i) => {
+        mensajeCaja += `${i+1}. ${c.tipoCaja} (max ${c.maxCajas} cajas) - opciones: ${c.opcionesBolas.join(', ')}\n`;
+    });
+    mensajeCaja += '\n0. Cancelar';
+    
+    const seleccionCaja = prompt(mensajeCaja);
+    if (!seleccionCaja || seleccionCaja === '0') return;
+    
+    const cajaIndex = parseInt(seleccionCaja) - 1;
+    if (isNaN(cajaIndex) || cajaIndex < 0 || cajaIndex >= config.configuraciones.length) {
+        mostrarNotificacion('Selección inválida', 'error');
+        return;
+    }
+    
+    const configCaja = config.configuraciones[cajaIndex];
+    
+    const cajasStr = prompt(`Número de cajas (máximo ${configCaja.maxCajas}):`, '1');
+    if (!cajasStr) return;
+    const cajas = parseInt(cajasStr);
+    if (isNaN(cajas) || cajas < 1 || cajas > configCaja.maxCajas) {
+        mostrarNotificacion(`Número de cajas inválido (máximo ${configCaja.maxCajas})`, 'error');
+        return;
+    }
+    
+    const bolasStr = prompt(`Bolas por caja (opciones: ${configCaja.opcionesBolas.join(', ')}):`, configCaja.opcionesBolas[0].toString());
+    if (!bolasStr) return;
+    const bolasPorCaja = parseInt(bolasStr);
+    if (isNaN(bolasPorCaja) || !configCaja.opcionesBolas.includes(bolasPorCaja)) {
+        mostrarNotificacion(`Bolas por caja inválido (opciones: ${configCaja.opcionesBolas.join(', ')})`, 'error');
+        return;
+    }
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    const nuevaLinea = {
+        tipoBola: tipoSeleccionado,
+        peso: config.peso,
+        tipoCaja: configCaja.tipoCaja,
+        cajas: cajas,
+        bolasPorCaja: bolasPorCaja,
+        total: cajas * bolasPorCaja,
+        distribucion: {}
+    };
+    
+    config.productosDestino.forEach(p => {
+        nuevaLinea.distribucion[p] = 0;
+    });
+    
+    if (!orden.lineas) orden.lineas = [];
+    orden.lineas.push(nuevaLinea);
+    guardarDatos(datos);
+    renderizarOrdenAmasado();
+    mostrarNotificacion('✅ Línea añadida correctamente', 'success');
+}
+
+function actualizarLineaAmasado(index, campo, valor) {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (index >= orden.lineas.length) return;
+    
+    const linea = orden.lineas[index];
+    const numValor = parseInt(valor) || 0;
+    
+    if (campo === 'cajas') {
+        const config = obtenerConfiguracionBola(linea.tipoBola);
+        const configCaja = config?.configuraciones.find(c => c.tipoCaja === linea.tipoCaja);
+        if (configCaja && numValor > configCaja.maxCajas) {
+            mostrarNotificacion(`Máximo ${configCaja.maxCajas} cajas`, 'warning');
+            return;
+        }
+        linea.cajas = numValor;
+    } else if (campo === 'bolasPorCaja') {
+        const config = obtenerConfiguracionBola(linea.tipoBola);
+        const configCaja = config?.configuraciones.find(c => c.tipoCaja === linea.tipoCaja);
+        if (configCaja && !configCaja.opcionesBolas.includes(numValor)) {
+            mostrarNotificacion(`Opciones: ${configCaja.opcionesBolas.join(', ')}`, 'warning');
+            return;
+        }
+        linea.bolasPorCaja = numValor;
+    }
+    
+    linea.total = (linea.cajas || 0) * (linea.bolasPorCaja || 0);
+    
+    guardarDatos(datos);
+    renderizarOrdenAmasado();
+}
+
+function actualizarDistribucion(index, producto, valor) {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (index >= orden.lineas.length) return;
+    
+    const linea = orden.lineas[index];
+    if (!linea.distribucion) linea.distribucion = {};
+    linea.distribucion[producto] = parseInt(valor) || 0;
+    
+    guardarDatos(datos);
+    renderizarOrdenAmasado();
+}
+
+function eliminarLineaAmasado(index) {
+    if (!confirm('¿Estás seguro de eliminar esta línea?')) return;
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (index >= orden.lineas.length) return;
+    orden.lineas.splice(index, 1);
+    guardarDatos(datos);
+    renderizarOrdenAmasado();
+    mostrarNotificacion('✅ Línea eliminada', 'success');
+}
+
+function guardarOrdenAmasado() {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    orden.operario = document.getElementById('operario-amasado')?.value || '';
+    orden.horaInicio = document.getElementById('hora-inicio')?.value || '08:00';
+    orden.horaFin = document.getElementById('hora-fin')?.value || '';
+    orden.temperatura = parseFloat(document.getElementById('temp-amasado')?.value) || 22;
+    orden.humedad = parseFloat(document.getElementById('humedad-amasado')?.value) || 55;
+    
+    const validacion = validarOrdenAmasado(orden);
+    if (!validacion.valida) {
+        mostrarNotificacion('❌ ' + validacion.errores.join('. '), 'error');
+        return;
+    }
+    
+    const resumen = obtenerResumenOrdenAmasado(orden);
+    orden.totalBolas = resumen.totalBolas;
+    orden.pesoTotal = resumen.pesoTotal;
+    
+    guardarOrdenAmasado(datos, fecha, orden);
+    mostrarNotificacion('✅ Orden de amasado guardada correctamente', 'success');
+    renderizarOrdenAmasado();
+}
+
+function aplicarOrdenAProduccionUI() {
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const datos = cargarDatos();
+    
+    guardarOrdenAmasado();
+    
+    const resultado = aplicarOrdenAProduccion(datos, fecha);
+    if (resultado) {
+        mostrarNotificacion('✅ Orden aplicada a producción correctamente', 'success');
+        renderizarOrdenAmasado();
+    }
+}
+
+function desaplicarOrdenAmasado() {
+    if (!confirm('⚠️ ¿Estás seguro de deshacer la aplicación de esta orden a producción?')) return;
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (!orden.aplicadoAProduccion) {
+        mostrarNotificacion('Esta orden no está aplicada a producción', 'warning');
+        return;
+    }
+    
+    const fechaUso = orden.fechaUso;
+    if (datos.produccion && datos.produccion[fechaUso]) {
+        datos.produccion[fechaUso].inventarioInicial = {};
+    }
+    
+    orden.aplicadoAProduccion = false;
+    delete orden.aplicadoEn;
+    
+    guardarDatos(datos);
+    mostrarNotificacion('✅ Aplicación deshecha correctamente', 'success');
+    renderizarOrdenAmasado();
+}
+
+function eliminarOrdenAmasado() {
+    if (!confirm('⚠️ ¿Estás seguro de eliminar esta orden de amasado?')) return;
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (orden.aplicadoAProduccion) {
+        if (!confirm('⚠️ Esta orden ya está aplicada a producción. ¿Seguro que quieres eliminarla?')) return;
+    }
+    
+    const resultado = eliminarOrdenAmasado(datos, fecha);
+    if (resultado) {
+        mostrarNotificacion('✅ Orden eliminada correctamente', 'success');
+        renderizarOrdenAmasado();
+    }
+}
+
+function exportarOrdenAmasado() {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (!orden.lineas || orden.lineas.length === 0) {
+        mostrarNotificacion('No hay datos para exportar', 'warning');
+        return;
+    }
+    
+    let csv = 'Orden de Amasado - Quality Pizzafresh\n';
+    csv += `Fecha: ${fecha}\n`;
+    csv += `Operario: ${orden.operario}\n`;
+    csv += `Total Bolas: ${orden.totalBolas}\n`;
+    csv += `Peso Total: ${orden.pesoTotal} kg\n\n`;
+    
+    csv += 'Tipo Bola,Peso,Caja,Cajas,Bolas/Caja,Total Bolas,Distribución\n';
+    
+    orden.lineas.forEach(linea => {
+        const distribucion = linea.distribucion ? 
+            Object.entries(linea.distribucion).map(([k, v]) => `${k}: ${v}`).join(' | ') : 
+            'Sin asignar';
+        
+        csv += `${linea.tipoBola},${linea.peso},${linea.tipoCaja},${linea.cajas},${linea.bolasPorCaja},${linea.total},"${distribucion}"\n`;
+    });
+    
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `orden_amasado_${fecha}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    
+    mostrarNotificacion('📥 CSV exportado correctamente', 'success');
+}
+
+// ============================================================
 // NAVEGACIÓN Y UTILIDADES - VERSIÓN SIMPLIFICADA Y FUNCIONAL
 // ============================================================
 

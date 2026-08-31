@@ -2290,12 +2290,13 @@ function exportarOrdenAmasado() {
 }
 
 // ============================================================
-// NAVEGACIÓN Y UTILIDADES - VERSIÓN SIMPLIFICADA Y FUNCIONAL
+// NAVEGACIÓN Y UTILIDADES - VERSIÓN ÚNICA Y OPTIMIZADA
 // ============================================================
 
 /**
  * Cambia entre las diferentes vistas de la aplicación
  * Esta es la ÚNICA función que maneja la navegación
+ * @param {string} vista - Nombre de la vista a mostrar
  */
 function cambiarVista(vista) {
     console.log('🔄 Cambiando a vista:', vista);
@@ -2342,7 +2343,31 @@ function cambiarVista(vista) {
 }
 
 /**
+ * Renderiza la vista actual según la navegación
+ */
+function renderizarVistaActual() {
+    const activeBtn = document.querySelector('.nav-btn.active');
+    if (activeBtn) {
+        cambiarVista(activeBtn.dataset.vista);
+    } else {
+        cambiarVista('produccion');
+    }
+}
+
+/**
+ * Alterna el menú en dispositivos móviles
+ */
+function toggleMenu() {
+    const navLinks = document.querySelector('.nav-links');
+    if (navLinks) {
+        navLinks.classList.toggle('open');
+    }
+}
+
+/**
  * Muestra una notificación en la pantalla
+ * @param {string} mensaje - Texto de la notificación
+ * @param {string} tipo - Tipo: 'success', 'error', 'warning', 'info'
  */
 function mostrarNotificacion(mensaje, tipo = 'info') {
     const notification = document.getElementById('notification');
@@ -2358,18 +2383,282 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
     }, 3000);
 }
 
+// ============================================================
+// FUNCIONES DE AMASADO - VERSIÓN CORREGIDA
+// ============================================================
+
 /**
- * Alterna el menú en dispositivos móviles
+ * Valida que una orden de amasado esté completa
+ * @param {Object} orden - Orden de amasado a validar
+ * @returns {Object} - { valida: boolean, errores: string[] }
  */
-function toggleMenu() {
-    const navLinks = document.querySelector('.nav-links');
-    if (navLinks) {
-        navLinks.classList.toggle('open');
+function validarOrdenAmasado(orden) {
+    const errores = [];
+    
+    // Validar operario
+    if (!orden.operario || orden.operario.trim() === '') {
+        errores.push('El operario es obligatorio');
+    }
+    
+    // Validar líneas
+    if (!orden.lineas || orden.lineas.length === 0) {
+        errores.push('Debe haber al menos una línea de amasado');
+    } else {
+        // Validar cada línea
+        orden.lineas.forEach((linea, index) => {
+            const total = linea.total || 0;
+            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+            
+            if (linea.cajas < 1) {
+                errores.push(`Línea ${index + 1}: El número de cajas debe ser mayor a 0`);
+            }
+            
+            if (asignado !== total) {
+                errores.push(`Línea ${index + 1}: Faltan ${total - asignado} bolas por asignar`);
+            }
+        });
+    }
+    
+    return {
+        valida: errores.length === 0,
+        errores: errores
+    };
+}
+
+/**
+ * Aplica una orden de amasado al inventario de producción del día siguiente
+ * @param {Object} datos - Datos completos de la aplicación
+ * @param {string} fecha - Fecha de la orden de amasado
+ * @returns {boolean} - True si se aplicó correctamente
+ */
+function aplicarOrdenAProduccion(datos, fecha) {
+    console.log('📥 Aplicando orden a producción...');
+    
+    const ordenes = obtenerOrdenesAmasado(datos);
+    const orden = ordenes[fecha];
+    
+    if (!orden) {
+        mostrarNotificacion('No se encontró la orden de amasado', 'error');
+        return false;
+    }
+    
+    // Validar que la orden esté completa
+    const validacion = validarOrdenAmasado(orden);
+    if (!validacion.valida) {
+        mostrarNotificacion('La orden no está completa: ' + validacion.errores.join(', '), 'error');
+        return false;
+    }
+    
+    if (orden.aplicadoAProduccion) {
+        mostrarNotificacion('Esta orden ya fue aplicada a producción', 'warning');
+        return false;
+    }
+    
+    const fechaUso = orden.fechaUso;
+    console.log('📅 Fecha de uso:', fechaUso);
+    
+    // Crear producción para el día de uso si no existe
+    if (!datos.produccion) datos.produccion = {};
+    if (!datos.produccion[fechaUso]) {
+        datos.produccion[fechaUso] = {
+            inventarioInicial: {},
+            horasTrabajadas: 0,
+            pedidos: []
+        };
+    }
+    
+    // Construir inventario inicial desde la distribución
+    const inventario = {};
+    orden.lineas.forEach(linea => {
+        if (linea.distribucion) {
+            Object.keys(linea.distribucion).forEach(producto => {
+                const cantidad = linea.distribucion[producto] || 0;
+                if (cantidad > 0) {
+                    inventario[producto] = (inventario[producto] || 0) + cantidad;
+                }
+            });
+        }
+    });
+    
+    console.log('📦 Inventario generado:', inventario);
+    
+    // Aplicar inventario
+    datos.produccion[fechaUso].inventarioInicial = inventario;
+    
+    // Marcar como aplicada
+    orden.aplicadoAProduccion = true;
+    orden.aplicadoEn = new Date().toISOString();
+    
+    guardarDatos(datos);
+    console.log('✅ Orden aplicada correctamente');
+    return true;
+}
+
+/**
+ * Guarda la orden de amasado completa
+ */
+function guardarOrdenAmasado() {
+    console.log('💾 Guardando orden de amasado...');
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    // Actualizar campos del formulario
+    orden.operario = document.getElementById('operario-amasado')?.value || '';
+    orden.horaInicio = document.getElementById('hora-inicio')?.value || '08:00';
+    orden.horaFin = document.getElementById('hora-fin')?.value || '';
+    orden.temperatura = parseFloat(document.getElementById('temp-amasado')?.value) || 22;
+    orden.humedad = parseFloat(document.getElementById('humedad-amasado')?.value) || 55;
+    
+    // Validar
+    const validacion = validarOrdenAmasado(orden);
+    if (!validacion.valida) {
+        mostrarNotificacion('❌ ' + validacion.errores.join('. '), 'error');
+        return;
+    }
+    
+    // Recalcular totales
+    const resumen = obtenerResumenOrdenAmasado(orden);
+    orden.totalBolas = resumen.totalBolas;
+    orden.pesoTotal = resumen.pesoTotal;
+    
+    guardarOrdenAmasado(datos, fecha, orden);
+    mostrarNotificacion('✅ Orden de amasado guardada correctamente', 'success');
+    renderizarOrdenAmasado();
+}
+
+/**
+ * Aplica la orden a producción desde UI
+ */
+function aplicarOrdenAProduccionUI() {
+    console.log('📥 Aplicando orden a producción desde UI...');
+    
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const datos = cargarDatos();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    // Validar que la orden esté completa
+    const validacion = validarOrdenAmasado(orden);
+    if (!validacion.valida) {
+        mostrarNotificacion('❌ ' + validacion.errores.join('. '), 'error');
+        return;
+    }
+    
+    if (orden.aplicadoAProduccion) {
+        mostrarNotificacion('⚠️ Esta orden ya fue aplicada a producción', 'warning');
+        return;
+    }
+    
+    // Confirmar con el usuario
+    if (!confirm(`📥 ¿Aplicar esta orden al inventario de producción del día ${orden.fechaUso}?`)) {
+        return;
+    }
+    
+    // Aplicar la orden
+    const resultado = aplicarOrdenAProduccion(datos, fecha);
+    
+    if (resultado) {
+        mostrarNotificacion(`✅ Orden aplicada a producción del día ${orden.fechaUso}`, 'success');
+        renderizarOrdenAmasado();
     }
 }
 
+/**
+ * Elimina la orden de amasado completa
+ */
+function eliminarOrdenAmasado() {
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const datos = cargarDatos();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    // Verificar si está aplicada
+    if (orden.aplicadoAProduccion) {
+        if (!confirm('⚠️ Esta orden ya está aplicada a producción. ¿Seguro que quieres eliminarla?')) {
+            return;
+        }
+    }
+    
+    if (!confirm('⚠️ ¿Estás seguro de eliminar esta orden de amasado?')) {
+        return;
+    }
+    
+    const resultado = eliminarOrdenAmasado(datos, fecha);
+    if (resultado) {
+        mostrarNotificacion('✅ Orden eliminada correctamente', 'success');
+        renderizarOrdenAmasado();
+    }
+}
+
+/**
+ * Deshace la aplicación de una orden
+ */
+function desaplicarOrdenAmasado() {
+    if (!confirm('⚠️ ¿Estás seguro de deshacer la aplicación de esta orden a producción?')) return;
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (!orden.aplicadoAProduccion) {
+        mostrarNotificacion('Esta orden no está aplicada a producción', 'warning');
+        return;
+    }
+    
+    const fechaUso = orden.fechaUso;
+    if (datos.produccion && datos.produccion[fechaUso]) {
+        datos.produccion[fechaUso].inventarioInicial = {};
+    }
+    
+    orden.aplicadoAProduccion = false;
+    delete orden.aplicadoEn;
+    
+    guardarDatos(datos);
+    mostrarNotificacion('✅ Aplicación deshecha correctamente', 'success');
+    renderizarOrdenAmasado();
+}
+
+/**
+ * Exporta la orden de amasado a CSV
+ */
+function exportarOrdenAmasado() {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (!orden.lineas || orden.lineas.length === 0) {
+        mostrarNotificacion('No hay datos para exportar', 'warning');
+        return;
+    }
+    
+    let csv = 'Orden de Amasado - Quality Pizzafresh\n';
+    csv += `Fecha: ${fecha}\n`;
+    csv += `Operario: ${orden.operario}\n`;
+    csv += `Total Bolas: ${orden.totalBolas}\n`;
+    csv += `Peso Total: ${orden.pesoTotal} kg\n\n`;
+    
+    csv += 'Tipo Bola,Peso,Caja,Cajas,Bolas/Caja,Total Bolas,Distribución\n';
+    
+    orden.lineas.forEach(linea => {
+        const distribucion = linea.distribucion ? 
+            Object.entries(linea.distribucion).map(([k, v]) => `${k}: ${v}`).join(' | ') : 
+            'Sin asignar';
+        
+        csv += `${linea.tipoBola},${linea.peso},${linea.tipoCaja},${linea.cajas},${linea.bolasPorCaja},${linea.total},"${distribucion}"\n`;
+    });
+    
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `orden_amasado_${fecha}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    
+    mostrarNotificacion('📥 CSV exportado correctamente', 'success');
+}
+
 // ============================================================
-// INICIALIZACIÓN DE LA APLICACIÓN
+// INICIALIZACIÓN DE LA APLICACIÓN - VERSIÓN ÚNICA
 // ============================================================
 
 /**

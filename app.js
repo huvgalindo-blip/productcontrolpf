@@ -2171,28 +2171,75 @@ function eliminarLineaAmasado(index) {
     mostrarNotificacion('✅ Línea eliminada', 'success');
 }
 
+/**
+ * Guarda la orden de amasado completa
+ */
 function guardarOrdenAmasado() {
+    console.log('💾 Guardando orden de amasado...');
+    
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
     
-    orden.operario = document.getElementById('operario-amasado')?.value || '';
-    orden.horaInicio = document.getElementById('hora-inicio')?.value || '08:00';
-    orden.horaFin = document.getElementById('hora-fin')?.value || '';
-    orden.temperatura = parseFloat(document.getElementById('temp-amasado')?.value) || 22;
-    orden.humedad = parseFloat(document.getElementById('humedad-amasado')?.value) || 55;
+    // ============================================
+    // OBTENER VALORES DEL FORMULARIO
+    // ============================================
+    
+    // Obtener el operario (con comprobación)
+    const operarioInput = document.getElementById('operario-amasado');
+    const operario = operarioInput ? operarioInput.value.trim() : '';
+    
+    // Obtener el resto de campos
+    const horaInicio = document.getElementById('hora-inicio');
+    const horaFin = document.getElementById('hora-fin');
+    const tempInput = document.getElementById('temp-amasado');
+    const humedadInput = document.getElementById('humedad-amasado');
+    
+    // ============================================
+    // ASIGNAR VALORES A LA ORDEN
+    // ============================================
+    
+    orden.operario = operario;
+    orden.horaInicio = horaInicio ? horaInicio.value : '08:00';
+    orden.horaFin = horaFin ? horaFin.value : '';
+    orden.temperatura = tempInput ? parseFloat(tempInput.value) || 22 : 22;
+    orden.humedad = humedadInput ? parseFloat(humedadInput.value) || 55 : 55;
+    
+    // 🔍 DEPURACIÓN: Verificar los valores
+    console.log('📋 Datos del formulario:');
+    console.log('  - Operario:', orden.operario);
+    console.log('  - Fecha:', fecha);
+    console.log('  - Hora Inicio:', orden.horaInicio);
+    console.log('  - Hora Fin:', orden.horaFin);
+    console.log('  - Temperatura:', orden.temperatura);
+    console.log('  - Humedad:', orden.humedad);
+    console.log('  - Líneas:', orden.lineas.length);
+    
+    // ============================================
+    // VALIDACIÓN
+    // ============================================
     
     const validacion = validarOrdenAmasado(orden);
     if (!validacion.valida) {
+        console.log('❌ Validación fallida:', validacion.errores);
         mostrarNotificacion('❌ ' + validacion.errores.join('. '), 'error');
         return;
     }
+    
+    // ============================================
+    // RECALCULAR TOTALES
+    // ============================================
     
     const resumen = obtenerResumenOrdenAmasado(orden);
     orden.totalBolas = resumen.totalBolas;
     orden.pesoTotal = resumen.pesoTotal;
     
+    // ============================================
+    // GUARDAR
+    // ============================================
+    
     guardarOrdenAmasado(datos, fecha, orden);
+    console.log('✅ Orden guardada correctamente. Total bolas:', orden.totalBolas);
     mostrarNotificacion('✅ Orden de amasado guardada correctamente', 'success');
     renderizarOrdenAmasado();
 }

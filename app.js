@@ -2244,19 +2244,6 @@ function guardarOrdenAmasado() {
     renderizarOrdenAmasado();
 }
 
-function aplicarOrdenAProduccionUI() {
-    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
-    const datos = cargarDatos();
-    
-    guardarOrdenAmasado();
-    
-    const resultado = aplicarOrdenAProduccion(datos, fecha);
-    if (resultado) {
-        mostrarNotificacion('✅ Orden aplicada a producción correctamente', 'success');
-        renderizarOrdenAmasado();
-    }
-}
-
 function desaplicarOrdenAmasado() {
     if (!confirm('⚠️ ¿Estás seguro de deshacer la aplicación de esta orden a producción?')) return;
     
@@ -2280,24 +2267,6 @@ function desaplicarOrdenAmasado() {
     guardarDatos(datos);
     mostrarNotificacion('✅ Aplicación deshecha correctamente', 'success');
     renderizarOrdenAmasado();
-}
-
-function eliminarOrdenAmasado() {
-    if (!confirm('⚠️ ¿Estás seguro de eliminar esta orden de amasado?')) return;
-    
-    const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
-    const orden = obtenerOrdenAmasado(datos, fecha);
-    
-    if (orden.aplicadoAProduccion) {
-        if (!confirm('⚠️ Esta orden ya está aplicada a producción. ¿Seguro que quieres eliminarla?')) return;
-    }
-    
-    const resultado = eliminarOrdenAmasado(datos, fecha);
-    if (resultado) {
-        mostrarNotificacion('✅ Orden eliminada correctamente', 'success');
-        renderizarOrdenAmasado();
-    }
 }
 
 function exportarOrdenAmasado() {

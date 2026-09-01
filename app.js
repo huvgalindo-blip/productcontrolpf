@@ -399,13 +399,9 @@ function eliminarOrdenAmasado(datos, fecha) {
 function validarOrdenAmasado(orden) {
     const errores = [];
     
-    // Validación del operario (ahora es opcional pero con advertencia)
-    const operario = orden.operario || '';
-    if (operario.trim() === '') {
-        // No añadimos error, solo mostramos un mensaje en consola
-        console.log('⚠️ Operario no especificado, pero se permite guardar');
-    }
+    // ✅ ELIMINADA LA VALIDACIÓN DEL OPERARIO - COMPLETAMENTE OPCIONAL
     
+    // Solo validar líneas
     if (!orden.lineas || orden.lineas.length === 0) {
         errores.push('Debe haber al menos una línea de amasado');
     } else {
@@ -706,20 +702,12 @@ function actualizarEstadoDistribucion() {
     // Actualizar validación de la orden
     const validacionDiv = document.querySelector('.validacion-orden');
     if (validacionDiv) {
-        const operario = orden.operario || '';
-        if (todasAsignadas && operario.trim() !== '') {
+        if (todasAsignadas) {
             validacionDiv.innerHTML = '✅ La orden está completa y lista para aplicar a producción';
             validacionDiv.style.background = '#E8F5E9';
             validacionDiv.style.borderLeftColor = 'var(--success)';
         } else {
-            const errores = [];
-            if (operario.trim() === '') {
-                errores.push('El operario es obligatorio');
-            }
-            if (totalSinAsignar > 0) {
-                errores.push(`Faltan ${totalSinAsignar} bolas por asignar`);
-            }
-            validacionDiv.innerHTML = '❌ ' + errores.join('. ');
+            validacionDiv.innerHTML = `❌ Faltan ${totalSinAsignar} bolas por asignar`;
             validacionDiv.style.background = '#FFF3E0';
             validacionDiv.style.borderLeftColor = 'var(--error)';
         }
@@ -733,23 +721,22 @@ function guardarOrdenAmasado() {
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
     
-    // ✅ OBTENER Y GUARDAR EL OPERARIO
+    // ✅ TODOS LOS CAMPOS OPCIONALES
     const operarioInput = document.getElementById('operario-amasado');
-    const operario = operarioInput ? operarioInput.value.trim() : '';
-    orden.operario = operario;
+    orden.operario = operarioInput ? operarioInput.value : '';
     
     const horaInicio = document.getElementById('hora-inicio');
     const horaFin = document.getElementById('hora-fin');
     const tempInput = document.getElementById('temp-amasado');
     const humedadInput = document.getElementById('humedad-amasado');
     
-    orden.horaInicio = horaInicio ? horaInicio.value : '08:00';
+    orden.horaInicio = horaInicio ? horaInicio.value : '';
     orden.horaFin = horaFin ? horaFin.value : '';
-    orden.temperatura = tempInput ? parseFloat(tempInput.value) || 22 : 22;
-    orden.humedad = humedadInput ? parseFloat(humedadInput.value) || 55 : 55;
+    orden.temperatura = tempInput ? parseFloat(tempInput.value) || 0 : 0;
+    orden.humedad = humedadInput ? parseFloat(humedadInput.value) || 0 : 0;
     
-    console.log('📋 Datos del formulario:');
-    console.log('  - Operario:', orden.operario);
+    console.log('📋 Datos:');
+    console.log('  - Operario:', orden.operario || '(vacío)');
     console.log('  - Fecha:', fecha);
     console.log('  - Líneas:', orden.lineas.length);
     console.log('  - Total bolas:', orden.totalBolas);
@@ -766,16 +753,13 @@ function guardarOrdenAmasado() {
     orden.pesoTotal = resumen.pesoTotal;
     
     guardarOrdenAmasado(datos, fecha, orden);
-    console.log('✅ Orden guardada correctamente. Total bolas:', orden.totalBolas);
+    console.log('✅ Orden guardada correctamente');
     mostrarNotificacion('✅ Orden de amasado guardada correctamente', 'success');
     renderizarOrdenAmasado();
 }
 
 function aplicarOrdenAProduccionUI() {
-    console.log('📥 Aplicando orden a producción desde UI...');
-    
-    // ✅ PRIMERO GUARDAR PARA ASEGURAR QUE EL OPERARIO ESTÁ GUARDADO
-    guardarOrdenAmasado();
+    console.log('📥 Aplicando orden a producción...');
     
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const datos = cargarDatos();
@@ -1288,26 +1272,26 @@ function renderizarOrdenAmasado() {
                         <input type="text" id="fecha-uso" value="${orden.fechaUso}" readonly style="background: #f0f0f0; font-weight: bold;">
                     </div>
                     <div class="form-group">
-                        <label>👤 Operario</label>
-                        <input type="text" id="operario-amasado" value="${orden.operario || ''}" placeholder="Nombre del operario" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        <label>👤 Operario (opcional)</label>
+                        <input type="text" id="operario-amasado" value="${orden.operario || ''}" placeholder="Opcional" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>⏰ Hora Inicio</label>
-                        <input type="time" id="hora-inicio" value="${orden.horaInicio || '08:00'}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        <label>⏰ Hora Inicio (opcional)</label>
+                        <input type="time" id="hora-inicio" value="${orden.horaInicio || ''}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                     </div>
                     <div class="form-group">
-                        <label>⏰ Hora Fin</label>
+                        <label>⏰ Hora Fin (opcional)</label>
                         <input type="time" id="hora-fin" value="${orden.horaFin || ''}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                     </div>
                     <div class="form-group">
-                        <label>🌡️ Temperatura (°C)</label>
-                        <input type="number" id="temp-amasado" value="${orden.temperatura || 22}" step="0.5" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        <label>🌡️ Temperatura (°C) (opcional)</label>
+                        <input type="number" id="temp-amasado" value="${orden.temperatura || ''}" step="0.5" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                     </div>
                     <div class="form-group">
-                        <label>💧 Humedad (%)</label>
-                        <input type="number" id="humedad-amasado" value="${orden.humedad || 55}" step="1" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        <label>💧 Humedad (%) (opcional)</label>
+                        <input type="number" id="humedad-amasado" value="${orden.humedad || ''}" step="1" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                     </div>
                 </div>
             </div>

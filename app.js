@@ -399,10 +399,11 @@ function eliminarOrdenAmasado(datos, fecha) {
 function validarOrdenAmasado(orden) {
     const errores = [];
     
-    // ✅ VALIDACIÓN ROBUSTA DEL OPERARIO
+    // Validación del operario (ahora es opcional pero con advertencia)
     const operario = orden.operario || '';
     if (operario.trim() === '') {
-        errores.push('El operario es obligatorio');
+        // No añadimos error, solo mostramos un mensaje en consola
+        console.log('⚠️ Operario no especificado, pero se permite guardar');
     }
     
     if (!orden.lineas || orden.lineas.length === 0) {
@@ -637,7 +638,9 @@ function actualizarDistribucion(index, producto, valor) {
     linea.distribucion[producto] = parseInt(valor) || 0;
     
     guardarDatos(datos);
-    renderizarOrdenAmasado();
+    
+    // ✅ ACTUALIZAR SOLO EL ESTADO, NO RECARGAR TODO
+    actualizarEstadoDistribucion();
 }
 
 function eliminarLineaAmasado(index) {
@@ -652,6 +655,75 @@ function eliminarLineaAmasado(index) {
     guardarDatos(datos);
     renderizarOrdenAmasado();
     mostrarNotificacion('✅ Línea eliminada', 'success');
+}
+
+// ✅ NUEVA FUNCIÓN: Actualiza solo los mensajes de estado sin recargar
+function actualizarEstadoDistribucion() {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    let todasAsignadas = true;
+    let totalSinAsignar = 0;
+    
+    if (orden.lineas) {
+        orden.lineas.forEach((linea, index) => {
+            const total = linea.total || 0;
+            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+            const restante = total - asignado;
+            
+            if (asignado !== total) {
+                todasAsignadas = false;
+                totalSinAsignar += restante;
+            }
+            
+            // Actualizar mensaje de cada línea
+            const estadoElement = document.querySelector(`.estado-distribucion-${index}`);
+            if (estadoElement) {
+                if (restante === 0 && total > 0) {
+                    estadoElement.textContent = '✅ Todas las bolas asignadas';
+                    estadoElement.style.color = 'var(--success)';
+                } else {
+                    estadoElement.textContent = `🔴 Restante sin asignar: ${restante} bolas`;
+                    estadoElement.style.color = 'var(--error)';
+                }
+            }
+        });
+    }
+    
+    // Actualizar mensaje global
+    const estadoGlobal = document.querySelector('.estado-distribucion-global');
+    if (estadoGlobal) {
+        if (todasAsignadas) {
+            estadoGlobal.textContent = '✅ Todas las bolas asignadas';
+            estadoGlobal.style.color = 'var(--success)';
+        } else {
+            estadoGlobal.textContent = `⚠️ ${totalSinAsignar} bolas sin asignar`;
+            estadoGlobal.style.color = 'var(--error)';
+        }
+    }
+    
+    // Actualizar validación de la orden
+    const validacionDiv = document.querySelector('.validacion-orden');
+    if (validacionDiv) {
+        const operario = orden.operario || '';
+        if (todasAsignadas && operario.trim() !== '') {
+            validacionDiv.innerHTML = '✅ La orden está completa y lista para aplicar a producción';
+            validacionDiv.style.background = '#E8F5E9';
+            validacionDiv.style.borderLeftColor = 'var(--success)';
+        } else {
+            const errores = [];
+            if (operario.trim() === '') {
+                errores.push('El operario es obligatorio');
+            }
+            if (totalSinAsignar > 0) {
+                errores.push(`Faltan ${totalSinAsignar} bolas por asignar`);
+            }
+            validacionDiv.innerHTML = '❌ ' + errores.join('. ');
+            validacionDiv.style.background = '#FFF3E0';
+            validacionDiv.style.borderLeftColor = 'var(--error)';
+        }
+    }
 }
 
 function guardarOrdenAmasado() {
@@ -1315,7 +1387,7 @@ function renderizarOrdenAmasado() {
             <div style="margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                 <div class="flex-between mb-10">
                     <h3>📦 Distribución a Productos Finales</h3>
-                    <span style="font-size: 0.9rem; color: ${todasAsignadas ? 'var(--success)' : 'var(--error)'};">
+                    <span style="font-size: 0.9rem; color: ${todasAsignadas ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-global">
                         ${todasAsignadas ? '✅ Todas las bolas asignadas' : `⚠️ ${totalSinAsignar} bolas sin asignar`}
                     </span>
                 </div>
@@ -1343,7 +1415,7 @@ function renderizarOrdenAmasado() {
                         <input type="number" min="0" step="1" 
                                style="width: 80px;" value="${valor}"
                                data-linea-index="${index}" data-producto="${producto}"
-                               onchange="actualizarDistribucion(${index}, '${producto}', this.value)"
+                               onblur="actualizarDistribucion(${index}, '${producto}', this.value)"
                                ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                     </div>
                 `;
@@ -1351,7 +1423,7 @@ function renderizarOrdenAmasado() {
             
             html += `
                     </div>
-                    <div style="margin-top: 10px; font-weight: bold; color: ${restante === 0 ? 'var(--success)' : 'var(--error)'};">
+                    <div style="margin-top: 10px; font-weight: bold; color: ${restante === 0 ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-${index}">
                         ${restante === 0 ? '✅ Todas las bolas asignadas' : `🔴 Restante sin asignar: ${restante} bolas`}
                     </div>
                 </div>
@@ -1371,11 +1443,11 @@ function renderizarOrdenAmasado() {
             <div class="resumen-grid" style="margin-top: 20px;">
                 <div class="resumen-card">
                     <div class="label">Total Bolas</div>
-                    <div class="value primary">${resumen.totalBolas}</div>
+                    <div class="value primary resumen-total-bolas">${resumen.totalBolas}</div>
                 </div>
                 <div class="resumen-card">
                     <div class="label">Peso Total</div>
-                    <div class="value">${resumen.pesoTotal} kg</div>
+                    <div class="value resumen-peso-total">${resumen.pesoTotal} kg</div>
                 </div>
                 <div class="resumen-card">
                     <div class="label">Total Cajas</div>
@@ -1388,7 +1460,7 @@ function renderizarOrdenAmasado() {
             </div>
             
             ${!orden.aplicadoAProduccion ? `
-                <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};">
+                <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};" class="validacion-orden">
                     ${validacion.valida ? 
                         '✅ La orden está completa y lista para aplicar a producción' :
                         '❌ ' + validacion.errores.join('. ')

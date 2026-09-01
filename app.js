@@ -399,7 +399,9 @@ function eliminarOrdenAmasado(datos, fecha) {
 function validarOrdenAmasado(orden) {
     const errores = [];
     
-    if (!orden.operario || orden.operario.trim() === '') {
+    // ✅ VALIDACIÓN ROBUSTA DEL OPERARIO
+    const operario = orden.operario || '';
+    if (operario.trim() === '') {
         errores.push('El operario es obligatorio');
     }
     
@@ -470,7 +472,7 @@ function aplicarOrdenAProduccion(datos, fecha) {
     });
     
     datos.produccion[fechaUso].inventarioInicial = inventario;
-    datos.produccion[fechaUso].inventarioDesdeAmasado = true; // ✅ MARCA EL ORIGEN
+    datos.produccion[fechaUso].inventarioDesdeAmasado = true;
     orden.aplicadoAProduccion = true;
     orden.aplicadoEn = new Date().toISOString();
     
@@ -503,7 +505,7 @@ function obtenerResumenOrdenAmasado(orden) {
 }
 
 // ============================================================
-// 8. FUNCIONES DE INTERACCIÓN - AMASADO (DEFINIDAS ANTES DE RENDERIZAR)
+// 8. FUNCIONES DE INTERACCIÓN - AMASADO (CORREGIDAS)
 // ============================================================
 
 function mostrarModalLineaAmasado() {
@@ -659,13 +661,16 @@ function guardarOrdenAmasado() {
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
     
+    // ✅ OBTENER Y GUARDAR EL OPERARIO
     const operarioInput = document.getElementById('operario-amasado');
+    const operario = operarioInput ? operarioInput.value.trim() : '';
+    orden.operario = operario;
+    
     const horaInicio = document.getElementById('hora-inicio');
     const horaFin = document.getElementById('hora-fin');
     const tempInput = document.getElementById('temp-amasado');
     const humedadInput = document.getElementById('humedad-amasado');
     
-    orden.operario = operarioInput ? operarioInput.value.trim() : '';
     orden.horaInicio = horaInicio ? horaInicio.value : '08:00';
     orden.horaFin = horaFin ? horaFin.value : '';
     orden.temperatura = tempInput ? parseFloat(tempInput.value) || 22 : 22;
@@ -696,6 +701,9 @@ function guardarOrdenAmasado() {
 
 function aplicarOrdenAProduccionUI() {
     console.log('📥 Aplicando orden a producción desde UI...');
+    
+    // ✅ PRIMERO GUARDAR PARA ASEGURAR QUE EL OPERARIO ESTÁ GUARDADO
+    guardarOrdenAmasado();
     
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const datos = cargarDatos();
@@ -819,7 +827,6 @@ function renderizarProduccion() {
     const productosActivos = obtenerProductosActivos(datos);
     const clientesActivos = obtenerClientesActivos(datos);
 
-    // ✅ Verificar si el inventario viene de amasado
     const esInventarioAmasado = produccion.inventarioDesdeAmasado || false;
 
     if (!produccion.inventarioInicial || Object.keys(produccion.inventarioInicial).length === 0) {
@@ -1474,7 +1481,6 @@ function renderizarOrdenAmasado() {
         });
     }
     
-    // ✅ NUEVO BOTÓN: Ver en Producción
     const btnVerProduccion = document.getElementById('btn-ver-produccion');
     if (btnVerProduccion) {
         btnVerProduccion.addEventListener('click', function() {

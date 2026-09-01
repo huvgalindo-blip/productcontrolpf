@@ -470,6 +470,7 @@ function aplicarOrdenAProduccion(datos, fecha) {
     });
     
     datos.produccion[fechaUso].inventarioInicial = inventario;
+    datos.produccion[fechaUso].inventarioDesdeAmasado = true; // ✅ MARCA EL ORIGEN
     orden.aplicadoAProduccion = true;
     orden.aplicadoEn = new Date().toISOString();
     
@@ -737,6 +738,7 @@ function desaplicarOrdenAmasado() {
     const fechaUso = orden.fechaUso;
     if (datos.produccion && datos.produccion[fechaUso]) {
         datos.produccion[fechaUso].inventarioInicial = {};
+        delete datos.produccion[fechaUso].inventarioDesdeAmasado;
     }
     
     orden.aplicadoAProduccion = false;
@@ -817,6 +819,9 @@ function renderizarProduccion() {
     const productosActivos = obtenerProductosActivos(datos);
     const clientesActivos = obtenerClientesActivos(datos);
 
+    // ✅ Verificar si el inventario viene de amasado
+    const esInventarioAmasado = produccion.inventarioDesdeAmasado || false;
+
     if (!produccion.inventarioInicial || Object.keys(produccion.inventarioInicial).length === 0) {
         produccion.inventarioInicial = inicializarInventario(datos, fecha);
         guardarDatos(datos);
@@ -835,7 +840,8 @@ function renderizarProduccion() {
             <div class="vista-header">
                 <div>
                     <h2>📋 Producción Diaria</h2>
-                    <span class="subtitle">Registro de pedidos del día</span>
+                    <span class="subtitle">${formatearFecha(fecha)}</span>
+                    ${esInventarioAmasado ? `<span style="background: #d4edda; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; color: #155724;">📦 Inventario desde Amasado</span>` : ''}
                 </div>
                 <div class="flex gap-10">
                     <input type="date" id="fecha-produccion" value="${fecha}" onchange="renderizarProduccion()">
@@ -923,7 +929,6 @@ function renderizarProduccion() {
 
             <div class="vista-header" style="margin-top: 20px;">
                 <h3>📊 Resumen del Día</h3>
-                <span class="subtitle">${formatearFecha(fecha)}</span>
             </div>
 
             <div class="resumen-grid">
@@ -1389,6 +1394,7 @@ function renderizarOrdenAmasado() {
                     <button class="btn btn-primary" id="btn-guardar-orden">💾 Guardar Orden</button>
                     <button class="btn btn-success" id="btn-aplicar-produccion">📥 Aplicar a Producción</button>
                     <button class="btn btn-danger" id="btn-eliminar-orden">🗑️ Eliminar Orden</button>
+                    <button class="btn btn-info" id="btn-ver-produccion" style="background: #17a2b8; color: white;">📋 Ver en Producción</button>
                 ` : `
                     <button class="btn btn-secondary" id="btn-recargar">🔄 Recargar</button>
                     <button class="btn btn-warning" id="btn-desaplicar">↩️ Deshacer Aplicación</button>
@@ -1465,6 +1471,15 @@ function renderizarOrdenAmasado() {
     if (btnExportar) {
         btnExportar.addEventListener('click', function() {
             exportarOrdenAmasado();
+        });
+    }
+    
+    // ✅ NUEVO BOTÓN: Ver en Producción
+    const btnVerProduccion = document.getElementById('btn-ver-produccion');
+    if (btnVerProduccion) {
+        btnVerProduccion.addEventListener('click', function() {
+            document.getElementById('fecha-produccion').value = orden.fechaUso;
+            cambiarVista('produccion');
         });
     }
 }

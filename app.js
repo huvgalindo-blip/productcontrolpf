@@ -399,9 +399,7 @@ function eliminarOrdenAmasado(datos, fecha) {
 function validarOrdenAmasado(orden) {
     const errores = [];
     
-    // ✅ ELIMINADA LA VALIDACIÓN DEL OPERARIO - COMPLETAMENTE OPCIONAL
-    
-    // Solo validar líneas
+    // Validación de líneas
     if (!orden.lineas || orden.lineas.length === 0) {
         errores.push('Debe haber al menos una línea de amasado');
     } else {
@@ -502,7 +500,7 @@ function obtenerResumenOrdenAmasado(orden) {
 }
 
 // ============================================================
-// 8. FUNCIONES DE INTERACCIÓN - AMASADO (CORREGIDAS)
+// 8. FUNCIONES DE INTERACCIÓN - AMASADO
 // ============================================================
 
 function mostrarModalLineaAmasado() {
@@ -634,8 +632,6 @@ function actualizarDistribucion(index, producto, valor) {
     linea.distribucion[producto] = parseInt(valor) || 0;
     
     guardarDatos(datos);
-    
-    // ✅ ACTUALIZAR SOLO EL ESTADO, NO RECARGAR TODO
     actualizarEstadoDistribucion();
 }
 
@@ -653,7 +649,83 @@ function eliminarLineaAmasado(index) {
     mostrarNotificacion('✅ Línea eliminada', 'success');
 }
 
-// ✅ NUEVA FUNCIÓN: Actualiza solo los mensajes de estado sin recargar
+// ✅ NUEVA FUNCIÓN: Duplicar una línea de amasado
+function duplicarLineaAmasado(index) {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (index >= orden.lineas.length) return;
+    
+    const lineaOriginal = orden.lineas[index];
+    
+    // Crear una copia profunda de la línea
+    const nuevaLinea = {
+        tipoBola: lineaOriginal.tipoBola,
+        peso: lineaOriginal.peso,
+        tipoCaja: lineaOriginal.tipoCaja,
+        cajas: lineaOriginal.cajas,
+        bolasPorCaja: lineaOriginal.bolasPorCaja,
+        total: lineaOriginal.total,
+        distribucion: {}
+    };
+    
+    // Copiar la distribución
+    if (lineaOriginal.distribucion) {
+        Object.keys(lineaOriginal.distribucion).forEach(producto => {
+            nuevaLinea.distribucion[producto] = lineaOriginal.distribucion[producto];
+        });
+    }
+    
+    // Insertar la línea duplicada justo después de la original
+    orden.lineas.splice(index + 1, 0, nuevaLinea);
+    
+    guardarDatos(datos);
+    renderizarOrdenAmasado();
+    mostrarNotificacion('✅ Línea duplicada correctamente', 'success');
+}
+
+// ✅ NUEVA FUNCIÓN: Duplicar todas las líneas de amasado
+function duplicarTodasLineasAmasado() {
+    if (!confirm('⚠️ ¿Duplicar todas las líneas de amasado?')) return;
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    
+    if (!orden.lineas || orden.lineas.length === 0) {
+        mostrarNotificacion('No hay líneas para duplicar', 'warning');
+        return;
+    }
+    
+    const lineasOriginales = [...orden.lineas];
+    
+    // Duplicar cada línea
+    lineasOriginales.forEach(lineaOriginal => {
+        const nuevaLinea = {
+            tipoBola: lineaOriginal.tipoBola,
+            peso: lineaOriginal.peso,
+            tipoCaja: lineaOriginal.tipoCaja,
+            cajas: lineaOriginal.cajas,
+            bolasPorCaja: lineaOriginal.bolasPorCaja,
+            total: lineaOriginal.total,
+            distribucion: {}
+        };
+        
+        if (lineaOriginal.distribucion) {
+            Object.keys(lineaOriginal.distribucion).forEach(producto => {
+                nuevaLinea.distribucion[producto] = lineaOriginal.distribucion[producto];
+            });
+        }
+        
+        orden.lineas.push(nuevaLinea);
+    });
+    
+    guardarDatos(datos);
+    renderizarOrdenAmasado();
+    mostrarNotificacion('✅ Todas las líneas duplicadas correctamente', 'success');
+}
+
 function actualizarEstadoDistribucion() {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
@@ -673,7 +745,6 @@ function actualizarEstadoDistribucion() {
                 totalSinAsignar += restante;
             }
             
-            // Actualizar mensaje de cada línea
             const estadoElement = document.querySelector(`.estado-distribucion-${index}`);
             if (estadoElement) {
                 if (restante === 0 && total > 0) {
@@ -687,7 +758,6 @@ function actualizarEstadoDistribucion() {
         });
     }
     
-    // Actualizar mensaje global
     const estadoGlobal = document.querySelector('.estado-distribucion-global');
     if (estadoGlobal) {
         if (todasAsignadas) {
@@ -699,7 +769,6 @@ function actualizarEstadoDistribucion() {
         }
     }
     
-    // Actualizar validación de la orden
     const validacionDiv = document.querySelector('.validacion-orden');
     if (validacionDiv) {
         if (todasAsignadas) {
@@ -721,7 +790,7 @@ function guardarOrdenAmasado() {
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
     
-    // ✅ TODOS LOS CAMPOS OPCIONALES
+    // Todos los campos opcionales
     const operarioInput = document.getElementById('operario-amasado');
     orden.operario = operarioInput ? operarioInput.value : '';
     
@@ -870,6 +939,10 @@ function exportarOrdenAmasado() {
     
     mostrarNotificacion('📥 CSV exportado correctamente', 'success');
 }
+
+// ============================================================
+// 9. UI - RENDERIZADO DE VISTAS
+// ============================================================
 
 // ============================================================
 // 9. UI - RENDERIZADO DE VISTAS
@@ -1222,7 +1295,7 @@ function actualizarInventarioInicial(producto, valor) {
 }
 
 // ============================================================
-// 10. UI - ORDEN DE AMASADO (RENDERIZADO CON addEventListener)
+// 10. UI - ORDEN DE AMASADO (CON BOTÓN DUPLICAR)
 // ============================================================
 
 function renderizarOrdenAmasado() {
@@ -1299,7 +1372,12 @@ function renderizarOrdenAmasado() {
             <div class="tabla-container">
                 <div class="flex-between mb-10">
                     <h3>📦 Bolas a Amasar</h3>
-                    ${!orden.aplicadoAProduccion ? `<button class="btn btn-primary btn-sm" id="btn-añadir-linea">➕ Añadir Línea</button>` : ''}
+                    ${!orden.aplicadoAProduccion ? `
+                        <div>
+                            <button class="btn btn-primary btn-sm" id="btn-añadir-linea">➕ Añadir Línea</button>
+                            <button class="btn btn-success btn-sm" id="btn-duplicar-todas" style="background: #28a745; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 4px;">📋 Duplicar Todas</button>
+                        </div>
+                    ` : ''}
                 </div>
                 <table>
                     <thead>
@@ -1356,7 +1434,10 @@ function renderizarOrdenAmasado() {
                     </td>
                     <td><strong>${total}</strong> ${estado}</td>
                     <td>
-                        ${!orden.aplicadoAProduccion ? `<button class="btn btn-danger btn-sm" onclick="eliminarLineaAmasado(${index})">🗑️</button>` : ''}
+                        ${!orden.aplicadoAProduccion ? `
+                            <button class="btn btn-success btn-sm" onclick="duplicarLineaAmasado(${index})" title="Duplicar esta línea" style="background: #28a745; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; margin-right: 4px;">📋</button>
+                            <button class="btn btn-danger btn-sm" onclick="eliminarLineaAmasado(${index})">🗑️</button>
+                        ` : ''}
                     </td>
                 </tr>
             `;
@@ -1492,6 +1573,13 @@ function renderizarOrdenAmasado() {
     if (btnAddLinea) {
         btnAddLinea.addEventListener('click', function() {
             mostrarModalLineaAmasado();
+        });
+    }
+    
+    const btnDuplicarTodas = document.getElementById('btn-duplicar-todas');
+    if (btnDuplicarTodas) {
+        btnDuplicarTodas.addEventListener('click', function() {
+            duplicarTodasLineasAmasado();
         });
     }
     

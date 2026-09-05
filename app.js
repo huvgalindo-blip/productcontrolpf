@@ -9,6 +9,22 @@
  */
 
 // ============================================================
+// 0. CONSTANTES GLOBALES
+// ============================================================
+
+const CONSTANTES = {
+    DIAS_SEMANA: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+    MESES: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
+    LIMITE_CAJAS: {
+        'Pequeña': 25,
+        'Mediana': 15
+    },
+    TIEMPO_NOTIFICACION: 3500,
+    DEBOUNCE_DELAY: 300,
+    MAX_REINTENTOS_GUARDADO: 3
+};
+
+// ============================================================
 // 1. DATOS POR DEFECTO (SEED DATA)
 // ============================================================
 
@@ -55,7 +71,7 @@ const DATOS_POR_DEFECTO = {
 };
 
 // ============================================================
-// 2. SERVICIO DE DATOS (localStorage)
+// 2. SERVICIO DE DATOS (localStorage con mejoras)
 // ============================================================
 
 function cargarDatos() {
@@ -63,25 +79,61 @@ function cargarDatos() {
         const datosGuardados = localStorage.getItem('qualityPizzaData');
         if (datosGuardados) {
             const datos = JSON.parse(datosGuardados);
+            // Asegurar que todas las propiedades existan
             if (!datos.productos) datos.productos = DATOS_POR_DEFECTO.productos;
             if (!datos.clientes) datos.clientes = DATOS_POR_DEFECTO.clientes;
             if (!datos.configuracion) datos.configuracion = DATOS_POR_DEFECTO.configuracion;
             if (!datos.produccion) datos.produccion = {};
+            if (!datos.ordenesAmasado) datos.ordenesAmasado = {};
             return datos;
         }
         guardarDatos(DATOS_POR_DEFECTO);
         return DATOS_POR_DEFECTO;
     } catch (error) {
         console.error('Error al cargar datos:', error);
+        mostrarNotificacion('⚠️ Error al cargar datos. Usando datos por defecto.', 'error');
         return DATOS_POR_DEFECTO;
     }
 }
 
-function guardarDatos(datos) {
+function guardarDatos(datos, reintentos = 0) {
     try {
         localStorage.setItem('qualityPizzaData', JSON.stringify(datos));
+        // Backup automático
+        try {
+            localStorage.setItem('qualityPizzaData_backup', JSON.stringify(datos));
+        } catch (backupError) {
+            console.warn('No se pudo crear backup:', backupError);
+        }
+        return true;
     } catch (error) {
         console.error('Error al guardar datos:', error);
+        
+        if (reintentos < CONSTANTES.MAX_REINTENTOS_GUARDADO) {
+            console.log(`Reintentando guardar... (${reintentos + 1}/${CONSTANTES.MAX_REINTENTOS_GUARDADO})`);
+            return guardarDatos(datos, reintentos + 1);
+        }
+        
+        mostrarNotificacion('⚠️ Error al guardar datos. Verifique el espacio disponible.', 'error');
+        return false;
+    }
+}
+
+function restaurarBackup() {
+    try {
+        const backup = localStorage.getItem('qualityPizzaData_backup');
+        if (backup) {
+            const datos = JSON.parse(backup);
+            localStorage.setItem('qualityPizzaData', backup);
+            mostrarNotificacion('✅ Backup restaurado correctamente', 'success');
+            return datos;
+        }
+        mostrarNotificacion('❌ No se encontró backup', 'error');
+        return null;
+    } catch (error) {
+        console.error('Error al restaurar backup:', error);
+        mostrarNotificacion('❌ Error al restaurar backup', 'error');
+        return null;
     }
 }
 
@@ -99,6 +151,55 @@ function formatearFecha(fecha) {
     if (!fecha) return '';
     const partes = fecha.split('-');
     return `${partes[2]}/${partes[1]}/${partes[0]}`;
+}
+
+function formatearFechaLarga(fecha) {
+    if (!fecha) return '';
+    const fechaObj = new Date(fecha);
+    return fechaObj.toLocaleDateString('es-ES', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+}
+
+// ============================================================
+// 2.1 FUNCIONES DE UTILIDAD
+// ============================================================
+
+function debounce(fn, delay = CONSTANTES.DEBOUNCE_DELAY) {
+    let timer;
+    return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+function throttle(fn, limit = 1000) {
+    let inThrottle = false;
+    return function(...args) {
+        if (!inThrottle) {
+            fn.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
+}
+
+function validarNumeroPositivo(valor, campo) {
+    const num = parseFloat(valor);
+    if (isNaN(num) || num < 0) {
+        throw new Error(`${campo} debe ser un número positivo`);
+    }
+    return num;
+}
+
+function validarTextoNoVacio(texto, campo) {
+    if (!texto || texto.trim() === '') {
+        throw new Error(`${campo} no puede estar vacío`);
+    }
+    return texto.trim();
 }
 
 // ============================================================
@@ -119,6 +220,10 @@ function obtenerPrecioCosto(datos, nombre) {
     return producto ? producto.precioCosto : 0;
 }
 
+function obtenerProductoPorNombre(datos, nombre) {
+    return datos.productos.find(p => p.nombre === nombre && p.activo) || null;
+}
+
 // ============================================================
 // 4. SERVICIO DE CLIENTES
 // ============================================================
@@ -129,6 +234,27 @@ function obtenerClientesActivos(datos) {
 
 function obtenerClientePorId(datos, id) {
     return datos.clientes.find(c => c.id === id) || null;
+}
+
+function obtenerClientePorCodigo(datos, codigo) {
+    return datos.clientes.find(c => c.codigo === codigo) || null;
+}
+
+function validarCliente(cliente, editando = false) {
+    const errores = [];
+    
+    if (!cliente.codigo || cliente.codigo.trim() === '') {
+        errores.push('El código es obligatorio');
+    }
+    
+    if (!cliente.nombre || cliente.nombre.trim() === '') {
+        errores.push('El nombre es obligatorio');
+    }
+    
+    return {
+        valida: errores.length === 0,
+        errores
+    };
 }
 
 // ============================================================
@@ -339,7 +465,7 @@ function generarIdOrdenAmasado(fecha, numero) {
 }
 
 // ============================================================
-// 7. SERVICIO DE ÓRDENES DE AMASADO
+// 7. SERVICIO DE ÓRDENES DE AMASADO (MEJORADO)
 // ============================================================
 
 function obtenerOrdenesAmasado(datos) {
@@ -383,15 +509,14 @@ function guardarOrdenAmasado(datos, fecha, orden) {
     const ordenes = obtenerOrdenesAmasado(datos);
     orden.updatedAt = new Date().toISOString();
     ordenes[fecha] = orden;
-    guardarDatos(datos);
+    return guardarDatos(datos);
 }
 
 function eliminarOrdenAmasado(datos, fecha) {
     const ordenes = obtenerOrdenesAmasado(datos);
     if (ordenes[fecha]) {
         delete ordenes[fecha];
-        guardarDatos(datos);
-        return true;
+        return guardarDatos(datos);
     }
     return false;
 }
@@ -399,11 +524,28 @@ function eliminarOrdenAmasado(datos, fecha) {
 function validarOrdenAmasado(orden) {
     const errores = [];
     
-    // Validación de líneas
+    if (!orden) {
+        errores.push('Orden no válida');
+        return { valida: false, errores };
+    }
+    
     if (!orden.lineas || orden.lineas.length === 0) {
         errores.push('Debe haber al menos una línea de amasado');
     } else {
         orden.lineas.forEach((linea, index) => {
+            // Validar campos requeridos
+            if (!linea.tipoBola) {
+                errores.push(`Línea ${index + 1}: Tipo de bola no definido`);
+            }
+            
+            if (!linea.peso || linea.peso <= 0) {
+                errores.push(`Línea ${index + 1}: Peso inválido`);
+            }
+            
+            if (!linea.tipoCaja) {
+                errores.push(`Línea ${index + 1}: Tipo de caja no definido`);
+            }
+            
             const total = linea.total || 0;
             const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
             
@@ -411,8 +553,21 @@ function validarOrdenAmasado(orden) {
                 errores.push(`Línea ${index + 1}: El número de cajas debe ser mayor a 0`);
             }
             
+            if (linea.bolasPorCaja < 1) {
+                errores.push(`Línea ${index + 1}: Las bolas por caja deben ser mayor a 0`);
+            }
+            
             if (asignado !== total) {
-                errores.push(`Línea ${index + 1}: Faltan ${total - asignado} bolas por asignar`);
+                errores.push(`Línea ${index + 1}: Faltan ${total - asignado} bolas por asignar (total: ${total}, asignado: ${asignado})`);
+            }
+            
+            // Validar que la distribución no tenga valores negativos
+            if (linea.distribucion) {
+                Object.entries(linea.distribucion).forEach(([producto, cantidad]) => {
+                    if (cantidad < 0) {
+                        errores.push(`Línea ${index + 1}: Valor negativo para ${producto} (${cantidad})`);
+                    }
+                });
             }
         });
     }
@@ -428,18 +583,18 @@ function aplicarOrdenAProduccion(datos, fecha) {
     const orden = ordenes[fecha];
     
     if (!orden) {
-        mostrarNotificacion('No se encontró la orden de amasado', 'error');
+        mostrarNotificacion('❌ No se encontró la orden de amasado', 'error');
         return false;
     }
     
     const validacion = validarOrdenAmasado(orden);
     if (!validacion.valida) {
-        mostrarNotificacion('La orden no está completa: ' + validacion.errores.join(', '), 'error');
+        mostrarNotificacion('❌ La orden no está completa: ' + validacion.errores.join(', '), 'error');
         return false;
     }
     
     if (orden.aplicadoAProduccion) {
-        mostrarNotificacion('Esta orden ya fue aplicada a producción', 'warning');
+        mostrarNotificacion('⚠️ Esta orden ya fue aplicada a producción', 'warning');
         return false;
     }
     
@@ -471,7 +626,11 @@ function aplicarOrdenAProduccion(datos, fecha) {
     orden.aplicadoAProduccion = true;
     orden.aplicadoEn = new Date().toISOString();
     
-    guardarDatos(datos);
+    if (!guardarDatos(datos)) {
+        mostrarNotificacion('❌ Error al guardar los datos', 'error');
+        return false;
+    }
+    
     return true;
 }
 
@@ -481,7 +640,7 @@ function obtenerResumenOrdenAmasado(orden) {
     let totalCajas = 0;
     let totalTorres = 0;
     
-    if (orden.lineas) {
+    if (orden && orden.lineas) {
         orden.lineas.forEach(linea => {
             totalBolas += linea.total || 0;
             pesoTotal += ((linea.total || 0) * linea.peso / 1000);
@@ -500,7 +659,7 @@ function obtenerResumenOrdenAmasado(orden) {
 }
 
 // ============================================================
-// 8. FUNCIONES DE INTERACCIÓN - AMASADO
+// 8. FUNCIONES DE INTERACCIÓN - AMASADO (MEJORADAS)
 // ============================================================
 
 function mostrarModalLineaAmasado() {
@@ -517,14 +676,14 @@ function mostrarModalLineaAmasado() {
     
     const index = parseInt(seleccion) - 1;
     if (isNaN(index) || index < 0 || index >= tipos.length) {
-        mostrarNotificacion('Selección inválida', 'error');
+        mostrarNotificacion('❌ Selección inválida', 'error');
         return;
     }
     
     const tipoSeleccionado = tipos[index];
     const config = obtenerConfiguracionBola(tipoSeleccionado);
     if (!config) {
-        mostrarNotificacion('Tipo de bola no encontrado', 'error');
+        mostrarNotificacion('❌ Tipo de bola no encontrado', 'error');
         return;
     }
     
@@ -539,7 +698,7 @@ function mostrarModalLineaAmasado() {
     
     const cajaIndex = parseInt(seleccionCaja) - 1;
     if (isNaN(cajaIndex) || cajaIndex < 0 || cajaIndex >= config.configuraciones.length) {
-        mostrarNotificacion('Selección inválida', 'error');
+        mostrarNotificacion('❌ Selección inválida', 'error');
         return;
     }
     
@@ -549,7 +708,7 @@ function mostrarModalLineaAmasado() {
     if (!cajasStr) return;
     const cajas = parseInt(cajasStr);
     if (isNaN(cajas) || cajas < 1 || cajas > configCaja.maxCajas) {
-        mostrarNotificacion(`Número de cajas inválido (máximo ${configCaja.maxCajas})`, 'error');
+        mostrarNotificacion(`❌ Número de cajas inválido (máximo ${configCaja.maxCajas})`, 'error');
         return;
     }
     
@@ -557,7 +716,7 @@ function mostrarModalLineaAmasado() {
     if (!bolasStr) return;
     const bolasPorCaja = parseInt(bolasStr);
     if (isNaN(bolasPorCaja) || !configCaja.opcionesBolas.includes(bolasPorCaja)) {
-        mostrarNotificacion(`Bolas por caja inválido (opciones: ${configCaja.opcionesBolas.join(', ')})`, 'error');
+        mostrarNotificacion(`❌ Bolas por caja inválido (opciones: ${configCaja.opcionesBolas.join(', ')})`, 'error');
         return;
     }
     
@@ -586,7 +745,8 @@ function mostrarModalLineaAmasado() {
     mostrarNotificacion('✅ Línea añadida correctamente', 'success');
 }
 
-function actualizarLineaAmasado(index, campo, valor) {
+// Versión con debounce para evitar múltiples renders
+const actualizarLineaAmasadoDebounce = debounce(function(index, campo, valor) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
@@ -600,7 +760,7 @@ function actualizarLineaAmasado(index, campo, valor) {
         const config = obtenerConfiguracionBola(linea.tipoBola);
         const configCaja = config?.configuraciones.find(c => c.tipoCaja === linea.tipoCaja);
         if (configCaja && numValor > configCaja.maxCajas) {
-            mostrarNotificacion(`Máximo ${configCaja.maxCajas} cajas`, 'warning');
+            mostrarNotificacion(`⚠️ Máximo ${configCaja.maxCajas} cajas`, 'warning');
             return;
         }
         linea.cajas = numValor;
@@ -608,7 +768,7 @@ function actualizarLineaAmasado(index, campo, valor) {
         const config = obtenerConfiguracionBola(linea.tipoBola);
         const configCaja = config?.configuraciones.find(c => c.tipoCaja === linea.tipoCaja);
         if (configCaja && !configCaja.opcionesBolas.includes(numValor)) {
-            mostrarNotificacion(`Opciones: ${configCaja.opcionesBolas.join(', ')}`, 'warning');
+            mostrarNotificacion(`⚠️ Opciones: ${configCaja.opcionesBolas.join(', ')}`, 'warning');
             return;
         }
         linea.bolasPorCaja = numValor;
@@ -618,9 +778,13 @@ function actualizarLineaAmasado(index, campo, valor) {
     
     guardarDatos(datos);
     renderizarOrdenAmasado();
+}, 300);
+
+function actualizarLineaAmasado(index, campo, valor) {
+    actualizarLineaAmasadoDebounce(index, campo, valor);
 }
 
-function actualizarDistribucion(index, producto, valor) {
+const actualizarDistribucionDebounce = debounce(function(index, producto, valor) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
@@ -633,10 +797,14 @@ function actualizarDistribucion(index, producto, valor) {
     
     guardarDatos(datos);
     actualizarEstadoDistribucion();
+}, 300);
+
+function actualizarDistribucion(index, producto, valor) {
+    actualizarDistribucionDebounce(index, producto, valor);
 }
 
 function eliminarLineaAmasado(index) {
-    if (!confirm('¿Estás seguro de eliminar esta línea?')) return;
+    if (!confirm('⚠️ ¿Estás seguro de eliminar esta línea?')) return;
     
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
@@ -649,7 +817,6 @@ function eliminarLineaAmasado(index) {
     mostrarNotificacion('✅ Línea eliminada', 'success');
 }
 
-// ✅ NUEVA FUNCIÓN: Duplicar una línea de amasado
 function duplicarLineaAmasado(index) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
@@ -659,7 +826,6 @@ function duplicarLineaAmasado(index) {
     
     const lineaOriginal = orden.lineas[index];
     
-    // Crear una copia profunda de la línea
     const nuevaLinea = {
         tipoBola: lineaOriginal.tipoBola,
         peso: lineaOriginal.peso,
@@ -670,14 +836,12 @@ function duplicarLineaAmasado(index) {
         distribucion: {}
     };
     
-    // Copiar la distribución
     if (lineaOriginal.distribucion) {
         Object.keys(lineaOriginal.distribucion).forEach(producto => {
             nuevaLinea.distribucion[producto] = lineaOriginal.distribucion[producto];
         });
     }
     
-    // Insertar la línea duplicada justo después de la original
     orden.lineas.splice(index + 1, 0, nuevaLinea);
     
     guardarDatos(datos);
@@ -685,7 +849,6 @@ function duplicarLineaAmasado(index) {
     mostrarNotificacion('✅ Línea duplicada correctamente', 'success');
 }
 
-// ✅ NUEVA FUNCIÓN: Duplicar todas las líneas de amasado
 function duplicarTodasLineasAmasado() {
     if (!confirm('⚠️ ¿Duplicar todas las líneas de amasado?')) return;
     
@@ -694,13 +857,12 @@ function duplicarTodasLineasAmasado() {
     const orden = obtenerOrdenAmasado(datos, fecha);
     
     if (!orden.lineas || orden.lineas.length === 0) {
-        mostrarNotificacion('No hay líneas para duplicar', 'warning');
+        mostrarNotificacion('⚠️ No hay líneas para duplicar', 'warning');
         return;
     }
     
     const lineasOriginales = [...orden.lineas];
     
-    // Duplicar cada línea
     lineasOriginales.forEach(lineaOriginal => {
         const nuevaLinea = {
             tipoBola: lineaOriginal.tipoBola,
@@ -790,7 +952,6 @@ function guardarOrdenAmasado() {
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
     
-    // Todos los campos opcionales
     const operarioInput = document.getElementById('operario-amasado');
     orden.operario = operarioInput ? operarioInput.value : '';
     
@@ -821,7 +982,11 @@ function guardarOrdenAmasado() {
     orden.totalBolas = resumen.totalBolas;
     orden.pesoTotal = resumen.pesoTotal;
     
-    guardarOrdenAmasado(datos, fecha, orden);
+    if (!guardarOrdenAmasado(datos, fecha, orden)) {
+        mostrarNotificacion('❌ Error al guardar la orden', 'error');
+        return;
+    }
+    
     console.log('✅ Orden guardada correctamente');
     mostrarNotificacion('✅ Orden de amasado guardada correctamente', 'success');
     renderizarOrdenAmasado();
@@ -845,12 +1010,12 @@ function aplicarOrdenAProduccionUI() {
         return;
     }
     
-    if (!confirm(`📥 ¿Aplicar esta orden al inventario de producción del día ${orden.fechaUso}?`)) {
+    const mensaje = `📥 ¿Aplicar esta orden al inventario de producción del día ${formatearFechaLarga(orden.fechaUso)}?`;
+    if (!confirm(mensaje)) {
         return;
     }
     
-    const resultado = aplicarOrdenAProduccion(datos, fecha);
-    if (resultado) {
+    if (aplicarOrdenAProduccion(datos, fecha)) {
         mostrarNotificacion(`✅ Orden aplicada a producción del día ${orden.fechaUso}`, 'success');
         renderizarOrdenAmasado();
     }
@@ -864,7 +1029,7 @@ function desaplicarOrdenAmasado() {
     const orden = obtenerOrdenAmasado(datos, fecha);
     
     if (!orden.aplicadoAProduccion) {
-        mostrarNotificacion('Esta orden no está aplicada a producción', 'warning');
+        mostrarNotificacion('⚠️ Esta orden no está aplicada a producción', 'warning');
         return;
     }
     
@@ -877,9 +1042,12 @@ function desaplicarOrdenAmasado() {
     orden.aplicadoAProduccion = false;
     delete orden.aplicadoEn;
     
-    guardarDatos(datos);
-    mostrarNotificacion('✅ Aplicación deshecha correctamente', 'success');
-    renderizarOrdenAmasado();
+    if (guardarDatos(datos)) {
+        mostrarNotificacion('✅ Aplicación deshecha correctamente', 'success');
+        renderizarOrdenAmasado();
+    } else {
+        mostrarNotificacion('❌ Error al deshacer la aplicación', 'error');
+    }
 }
 
 function eliminarOrdenAmasado() {
@@ -887,20 +1055,18 @@ function eliminarOrdenAmasado() {
     const datos = cargarDatos();
     const orden = obtenerOrdenAmasado(datos, fecha);
     
+    let mensaje = '⚠️ ¿Estás seguro de eliminar esta orden de amasado?';
     if (orden.aplicadoAProduccion) {
-        if (!confirm('⚠️ Esta orden ya está aplicada a producción. ¿Seguro que quieres eliminarla?')) {
-            return;
-        }
+        mensaje = '⚠️ Esta orden ya está aplicada a producción. ¿Seguro que quieres eliminarla? Esto afectará al inventario.';
     }
     
-    if (!confirm('⚠️ ¿Estás seguro de eliminar esta orden de amasado?')) {
-        return;
-    }
+    if (!confirm(mensaje)) return;
     
-    const resultado = eliminarOrdenAmasado(datos, fecha);
-    if (resultado) {
+    if (eliminarOrdenAmasado(datos, fecha)) {
         mostrarNotificacion('✅ Orden eliminada correctamente', 'success');
         renderizarOrdenAmasado();
+    } else {
+        mostrarNotificacion('❌ Error al eliminar la orden', 'error');
     }
 }
 
@@ -910,13 +1076,13 @@ function exportarOrdenAmasado() {
     const orden = obtenerOrdenAmasado(datos, fecha);
     
     if (!orden.lineas || orden.lineas.length === 0) {
-        mostrarNotificacion('No hay datos para exportar', 'warning');
+        mostrarNotificacion('⚠️ No hay datos para exportar', 'warning');
         return;
     }
     
     let csv = 'Orden de Amasado - Quality Pizzafresh\n';
     csv += `Fecha: ${fecha}\n`;
-    csv += `Operario: ${orden.operario}\n`;
+    csv += `Operario: ${orden.operario || 'No especificado'}\n`;
     csv += `Total Bolas: ${orden.totalBolas}\n`;
     csv += `Peso Total: ${orden.pesoTotal} kg\n\n`;
     
@@ -930,242 +1096,316 @@ function exportarOrdenAmasado() {
         csv += `${linea.tipoBola},${linea.peso},${linea.tipoCaja},${linea.cajas},${linea.bolasPorCaja},${linea.total},"${distribucion}"\n`;
     });
     
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `orden_amasado_${fecha}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    try {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `orden_amasado_${fecha}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        
+        mostrarNotificacion('📥 CSV exportado correctamente', 'success');
+    } catch (error) {
+        console.error('Error al exportar:', error);
+        mostrarNotificacion('❌ Error al exportar CSV', 'error');
+    }
+}
+
+function exportarDatosCompletos() {
+    const datos = cargarDatos();
+    const fecha = new Date().toISOString().split('T')[0];
     
-    mostrarNotificacion('📥 CSV exportado correctamente', 'success');
+    try {
+        const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `quality_pizza_backup_${fecha}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        
+        mostrarNotificacion('📥 Datos exportados correctamente', 'success');
+    } catch (error) {
+        console.error('Error al exportar datos:', error);
+        mostrarNotificacion('❌ Error al exportar datos', 'error');
+    }
+}
+
+function importarDatosCompletos() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const datos = JSON.parse(event.target.result);
+                
+                // Validar estructura mínima
+                if (!datos.productos || !datos.clientes || !datos.configuracion) {
+                    mostrarNotificacion('❌ El archivo no tiene la estructura correcta', 'error');
+                    return;
+                }
+                
+                if (!confirm('⚠️ ¿Importar datos? Se sobrescribirán los datos actuales.')) return;
+                
+                guardarDatos(datos);
+                mostrarNotificacion('✅ Datos importados correctamente', 'success');
+                renderizarVistaActual();
+            } catch (error) {
+                console.error('Error al importar:', error);
+                mostrarNotificacion('❌ Error al importar datos', 'error');
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
 }
 
 // ============================================================
-// 9. UI - RENDERIZADO DE VISTAS
-// ============================================================
-
-// ============================================================
-// 9. UI - RENDERIZADO DE VISTAS
+// 9. UI - RENDERIZADO DE PRODUCCIÓN
 // ============================================================
 
 function renderizarProduccion() {
     const container = document.getElementById('vista-container');
-    const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
-    const produccion = obtenerProduccionDia(datos, fecha);
-    const productosActivos = obtenerProductosActivos(datos);
-    const clientesActivos = obtenerClientesActivos(datos);
+    
+    // Mostrar indicador de carga
+    container.innerHTML = '<div class="loading">Cargando producción...</div>';
+    
+    setTimeout(() => {
+        const datos = cargarDatos();
+        const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+        const produccion = obtenerProduccionDia(datos, fecha);
+        const productosActivos = obtenerProductosActivos(datos);
+        const clientesActivos = obtenerClientesActivos(datos);
 
-    const esInventarioAmasado = produccion.inventarioDesdeAmasado || false;
+        const esInventarioAmasado = produccion.inventarioDesdeAmasado || false;
 
-    if (!produccion.inventarioInicial || Object.keys(produccion.inventarioInicial).length === 0) {
-        produccion.inventarioInicial = inicializarInventario(datos, fecha);
-        guardarDatos(datos);
-    }
+        if (!produccion.inventarioInicial || Object.keys(produccion.inventarioInicial).length === 0) {
+            produccion.inventarioInicial = inicializarInventario(datos, fecha);
+            guardarDatos(datos);
+        }
 
-    const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
-    const inventarioFinal = calcularInventarioFinal(produccion.inventarioInicial, ventasDiarias);
-    const costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
-    const costeMOD = parseFloat(produccion.horasTrabajadas) * parseFloat(datos.configuracion.costeManoObraHora);
-    const ventasGen = calcularVentasGeneradas(datos, ventasDiarias);
-    const costeTotal = costeMP + costeMOD;
-    const margen = calcularMargen(ventasGen, costeTotal);
+        const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
+        const inventarioFinal = calcularInventarioFinal(produccion.inventarioInicial, ventasDiarias);
+        const costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
+        const costeMOD = parseFloat(produccion.horasTrabajadas) * parseFloat(datos.configuracion.costeManoObraHora);
+        const ventasGen = calcularVentasGeneradas(datos, ventasDiarias);
+        const costeTotal = costeMP + costeMOD;
+        const margen = calcularMargen(ventasGen, costeTotal);
 
-    let html = `
-        <div class="vista active">
-            <div class="vista-header">
-                <div>
-                    <h2>📋 Producción Diaria</h2>
-                    <span class="subtitle">${formatearFecha(fecha)}</span>
-                    ${esInventarioAmasado ? `<span style="background: #d4edda; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; color: #155724;">📦 Inventario desde Amasado</span>` : ''}
+        let html = `
+            <div class="vista active">
+                <div class="vista-header">
+                    <div>
+                        <h2>📋 Producción Diaria</h2>
+                        <span class="subtitle">${formatearFechaLarga(fecha)}</span>
+                        ${esInventarioAmasado ? `<span style="background: #d4edda; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; color: #155724; margin-left: 10px;">📦 Inventario desde Amasado</span>` : ''}
+                    </div>
+                    <div class="flex gap-10">
+                        <input type="date" id="fecha-produccion" value="${fecha}" onchange="renderizarProduccion()">
+                        <button class="btn btn-secondary btn-sm" onclick="irDiaAnterior()" title="Día anterior">◀</button>
+                        <button class="btn btn-secondary btn-sm" onclick="irDiaSiguiente()" title="Día siguiente">▶</button>
+                        <button class="btn btn-primary btn-sm" onclick="irHoy()" title="Ir a hoy">Hoy</button>
+                    </div>
                 </div>
-                <div class="flex gap-10">
-                    <input type="date" id="fecha-produccion" value="${fecha}" onchange="renderizarProduccion()">
-                    <button class="btn btn-secondary btn-sm" onclick="irDiaAnterior()">◀</button>
-                    <button class="btn btn-secondary btn-sm" onclick="irDiaSiguiente()">▶</button>
-                    <button class="btn btn-primary btn-sm" onclick="irHoy()">Hoy</button>
-                </div>
-            </div>
 
-            <div class="tabla-container">
-                <div class="flex-between mb-10">
-                    <span><strong>${productosActivos.length}</strong> productos activos</span>
-                    <button class="btn btn-primary btn-sm" onclick="añadirFilaPedido()">➕ Añadir fila</button>
-                </div>
-                <table id="tabla-pedidos">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Cliente</th>
-                            ${productosActivos.map(p => `<th title="${p.nombre}">${p.nombre}</th>`).join('')}
-                            <th>Total</th>
-                            <th>Finalizado</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-    `;
-
-    if (produccion.pedidos.length === 0) {
-        html += `
-            <tr>
-                <td colspan="${productosActivos.length + 4}" class="text-center" style="padding: 30px; color: #999;">
-                    No hay pedidos registrados para este día
-                </td>
-            </tr>
+                <div class="tabla-container">
+                    <div class="flex-between mb-10">
+                        <span><strong>${productosActivos.length}</strong> productos activos | <strong>${produccion.pedidos.length}</strong> pedidos</span>
+                        <div>
+                            <button class="btn btn-primary btn-sm" onclick="añadirFilaPedido()">➕ Añadir fila</button>
+                            <button class="btn btn-secondary btn-sm" onclick="limpiarPedidosFinalizados()" style="margin-left: 5px;">🧹 Limpiar finalizados</button>
+                        </div>
+                    </div>
+                    <table id="tabla-pedidos">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Cliente</th>
+                                ${productosActivos.map(p => `<th title="${p.nombre}">${p.nombre}</th>`).join('')}
+                                <th>Total</th>
+                                <th>Finalizado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
         `;
-    } else {
-        produccion.pedidos.forEach((pedido, index) => {
-            const cliente = obtenerClientePorId(datos, pedido.clienteId);
-            const totalPedido = calcularTotalPedido(pedido.productos);
-            const finalizado = pedido.finalizado || false;
 
-            html += `
-                <tr class="${finalizado ? 'finalizado' : ''}">
-                    <td>${index + 1}</td>
-                    <td>
-                        <select class="cliente-select" data-index="${index}" onchange="actualizarPedido(${index})">
-                            <option value="">Seleccionar cliente</option>
-                            ${clientesActivos.map(c => `
-                                <option value="${c.id}" ${c.id === pedido.clienteId ? 'selected' : ''}>
-                                    ${c.codigo} - ${c.nombre}
-                                </option>
-                            `).join('')}
-                        </select>
-                    </td>
-                    ${productosActivos.map(p => `
-                        <td>
-                            <input type="number" min="0" step="1"
-                                   class="cantidad-input" 
-                                   data-index="${index}" 
-                                   data-producto="${p.nombre}"
-                                   value="${pedido.productos?.[p.nombre] || 0}"
-                                   onchange="actualizarPedido(${index})">
-                        </td>
-                    `).join('')}
-                    <td class="total-cell">${totalPedido}</td>
-                    <td>
-                        <input type="checkbox" class="finalizado-check" 
-                               data-index="${index}"
-                               ${finalizado ? 'checked' : ''}
-                               onchange="actualizarPedido(${index})">
-                    </td>
-                    <td>
-                        <button class="btn btn-danger btn-sm" onclick="eliminarFilaPedido(${index})">🗑️</button>
-                    </td>
-                </tr>
-            `;
-        });
-    }
-
-    html += `
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="vista-header" style="margin-top: 20px;">
-                <h3>📊 Resumen del Día</h3>
-            </div>
-
-            <div class="resumen-grid">
-                <div class="resumen-card">
-                    <div class="label">Horas Trabajadas</div>
-                    <input type="number" step="0.5" min="0" 
-                           style="width: 80px; text-align: center; margin: 5px auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;"
-                           value="${produccion.horasTrabajadas || 0}"
-                           onchange="guardarHorasTrabajadas(this.value)">
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Coste Materia Prima</div>
-                    <div class="value primary">${costeMP.toFixed(2)} €</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Coste Mano de Obra</div>
-                    <div class="value primary">${costeMOD.toFixed(2)} €</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Coste Total</div>
-                    <div class="value">${costeTotal.toFixed(2)} €</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Ventas Generadas</div>
-                    <div class="value success">${ventasGen.toFixed(2)} €</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Margen</div>
-                    <div class="value ${margen > 0 ? 'success' : 'danger'}">${margen}%</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Total Pedidos</div>
-                    <div class="value">${produccion.pedidos.length}</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Unidades Producidas</div>
-                    <div class="value">${Object.values(ventasDiarias).reduce((a,b) => a + b, 0)}</div>
-                </div>
-            </div>
-
-            <div class="vista-header" style="margin-top: 10px;">
-                <h3>📦 Inventario</h3>
-            </div>
-            <div class="tabla-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Producto</th>
-                            <th>Inicial</th>
-                            <th>Ventas</th>
-                            <th>Final</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-    `;
-
-    const todosProductos = new Set([
-        ...Object.keys(produccion.inventarioInicial || {}),
-        ...Object.keys(ventasDiarias)
-    ]);
-
-    if (todosProductos.size === 0) {
-        html += `
-            <tr>
-                <td colspan="4" class="text-center" style="padding: 20px; color: #999;">
-                    No hay productos registrados
-                </td>
-            </tr>
-        `;
-    } else {
-        todosProductos.forEach(nombre => {
-            const inicial = parseFloat(produccion.inventarioInicial?.[nombre]) || 0;
-            const ventas = parseFloat(ventasDiarias?.[nombre]) || 0;
-            const final = inicial - ventas;
-
+        if (produccion.pedidos.length === 0) {
             html += `
                 <tr>
-                    <td><strong>${nombre}</strong></td>
-                    <td>
-                        <input type="number" min="0" step="1"
-                               style="width: 80px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
-                               value="${inicial}"
-                               data-producto="${nombre}"
-                               onchange="actualizarInventarioInicial('${nombre}', this.value)">
+                    <td colspan="${productosActivos.length + 4}" class="text-center" style="padding: 30px; color: #999;">
+                        No hay pedidos registrados para este día
                     </td>
-                    <td>${ventas}</td>
-                    <td><strong>${final}</strong></td>
                 </tr>
             `;
-        });
-    }
+        } else {
+            produccion.pedidos.forEach((pedido, index) => {
+                const cliente = obtenerClientePorId(datos, pedido.clienteId);
+                const totalPedido = calcularTotalPedido(pedido.productos);
+                const finalizado = pedido.finalizado || false;
 
-    html += `
-                    </tbody>
-                </table>
+                html += `
+                    <tr class="${finalizado ? 'finalizado' : ''}">
+                        <td>${index + 1}</td>
+                        <td>
+                            <select class="cliente-select" data-index="${index}" onchange="actualizarPedido(${index})">
+                                <option value="">Seleccionar cliente</option>
+                                ${clientesActivos.map(c => `
+                                    <option value="${c.id}" ${c.id === pedido.clienteId ? 'selected' : ''}>
+                                        ${c.codigo} - ${c.nombre}
+                                    </option>
+                                `).join('')}
+                            </select>
+                        </td>
+                        ${productosActivos.map(p => `
+                            <td>
+                                <input type="number" min="0" step="1"
+                                       class="cantidad-input" 
+                                       data-index="${index}" 
+                                       data-producto="${p.nombre}"
+                                       value="${pedido.productos?.[p.nombre] || 0}"
+                                       onchange="actualizarPedido(${index})">
+                            </td>
+                        `).join('')}
+                        <td class="total-cell">${totalPedido}</td>
+                        <td>
+                            <input type="checkbox" class="finalizado-check" 
+                                   data-index="${index}"
+                                   ${finalizado ? 'checked' : ''}
+                                   onchange="actualizarPedido(${index})">
+                        </td>
+                        <td>
+                            <button class="btn btn-danger btn-sm" onclick="eliminarFilaPedido(${index})" title="Eliminar fila">🗑️</button>
+                            <button class="btn btn-secondary btn-sm" onclick="duplicarFilaPedido(${index})" title="Duplicar fila" style="margin-left: 5px;">📋</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="vista-header" style="margin-top: 20px;">
+                    <h3>📊 Resumen del Día</h3>
+                </div>
+
+                <div class="resumen-grid">
+                    <div class="resumen-card">
+                        <div class="label">Horas Trabajadas</div>
+                        <input type="number" step="0.5" min="0" 
+                               style="width: 80px; text-align: center; margin: 5px auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;"
+                               value="${produccion.horasTrabajadas || 0}"
+                               onchange="guardarHorasTrabajadas(this.value)">
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Coste Materia Prima</div>
+                        <div class="value primary">${costeMP.toFixed(2)} €</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Coste Mano de Obra</div>
+                        <div class="value primary">${costeMOD.toFixed(2)} €</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Coste Total</div>
+                        <div class="value">${costeTotal.toFixed(2)} €</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Ventas Generadas</div>
+                        <div class="value success">${ventasGen.toFixed(2)} €</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Margen</div>
+                        <div class="value ${margen > 0 ? 'success' : 'danger'}">${margen}%</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Total Pedidos</div>
+                        <div class="value">${produccion.pedidos.length}</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Unidades Producidas</div>
+                        <div class="value">${Object.values(ventasDiarias).reduce((a,b) => a + b, 0)}</div>
+                    </div>
+                </div>
+
+                <div class="vista-header" style="margin-top: 10px;">
+                    <h3>📦 Inventario</h3>
+                </div>
+                <div class="tabla-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Producto</th>
+                                <th>Inicial</th>
+                                <th>Ventas</th>
+                                <th>Final</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+
+        const todosProductos = new Set([
+            ...Object.keys(produccion.inventarioInicial || {}),
+            ...Object.keys(ventasDiarias)
+        ]);
+
+        if (todosProductos.size === 0) {
+            html += `
+                <tr>
+                    <td colspan="4" class="text-center" style="padding: 20px; color: #999;">
+                        No hay productos registrados
+                    </td>
+                </tr>
+            `;
+        } else {
+            todosProductos.forEach(nombre => {
+                const inicial = parseFloat(produccion.inventarioInicial?.[nombre]) || 0;
+                const ventas = parseFloat(ventasDiarias?.[nombre]) || 0;
+                const final = inicial - ventas;
+
+                html += `
+                    <tr>
+                        <td><strong>${nombre}</strong></td>
+                        <td>
+                            <input type="number" min="0" step="1"
+                                   style="width: 80px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
+                                   value="${inicial}"
+                                   data-producto="${nombre}"
+                                   onchange="actualizarInventarioInicial('${nombre}', this.value)">
+                        </td>
+                        <td>${ventas}</td>
+                        <td><strong>${final}</strong></td>
+                    </tr>
+                `;
+            });
+        }
+
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" onclick="exportarDatosCompletos()">📥 Exportar Backup</button>
+                    <button class="btn btn-secondary" onclick="importarDatosCompletos()">📤 Importar Backup</button>
+                    <button class="btn btn-secondary" onclick="restaurarBackup()">🔄 Restaurar Backup</button>
+                </div>
             </div>
-        </div>
-    `;
+        `;
 
-    container.innerHTML = html;
-    guardarDatos(datos);
+        container.innerHTML = html;
+        guardarDatos(datos);
+    }, 50);
 }
 
 function irDiaAnterior() {
@@ -1213,17 +1453,42 @@ function añadirFilaPedido() {
         productos: productos,
         finalizado: false,
         lote: '',
-        caducidad: ''
+        caducidad: '',
+        createdAt: new Date().toISOString()
     };
 
     produccion.pedidos.push(nuevoPedido);
     guardarDatos(datos);
     renderizarProduccion();
-    mostrarNotificacion('Fila añadida correctamente', 'success');
+    mostrarNotificacion('✅ Fila añadida correctamente', 'success');
+}
+
+function duplicarFilaPedido(index) {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const produccion = obtenerProduccionDia(datos, fecha);
+    
+    if (index >= produccion.pedidos.length) return;
+    
+    const original = produccion.pedidos[index];
+    const nueva = {
+        id: `P${String(produccion.pedidos.length + 1).padStart(3, '0')}`,
+        clienteId: original.clienteId,
+        productos: { ...original.productos },
+        finalizado: false,
+        lote: '',
+        caducidad: '',
+        createdAt: new Date().toISOString()
+    };
+    
+    produccion.pedidos.splice(index + 1, 0, nueva);
+    guardarDatos(datos);
+    renderizarProduccion();
+    mostrarNotificacion('✅ Fila duplicada correctamente', 'success');
 }
 
 function eliminarFilaPedido(index) {
-    if (!confirm('¿Estás seguro de eliminar esta fila?')) return;
+    if (!confirm('⚠️ ¿Estás seguro de eliminar esta fila?')) return;
 
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -1233,8 +1498,29 @@ function eliminarFilaPedido(index) {
         produccion.pedidos.splice(index, 1);
         guardarDatos(datos);
         renderizarProduccion();
-        mostrarNotificacion('Fila eliminada correctamente', 'success');
+        mostrarNotificacion('✅ Fila eliminada correctamente', 'success');
     }
+}
+
+function limpiarPedidosFinalizados() {
+    if (!confirm('⚠️ ¿Eliminar todos los pedidos finalizados?')) return;
+    
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const produccion = obtenerProduccionDia(datos, fecha);
+    
+    const originalLength = produccion.pedidos.length;
+    produccion.pedidos = produccion.pedidos.filter(p => !p.finalizado);
+    const eliminados = originalLength - produccion.pedidos.length;
+    
+    if (eliminados === 0) {
+        mostrarNotificacion('ℹ️ No hay pedidos finalizados para limpiar', 'info');
+        return;
+    }
+    
+    guardarDatos(datos);
+    renderizarProduccion();
+    mostrarNotificacion(`✅ ${eliminados} pedidos finalizados eliminados`, 'success');
 }
 
 function actualizarPedido(index) {
@@ -1295,347 +1581,350 @@ function actualizarInventarioInicial(producto, valor) {
 }
 
 // ============================================================
-// 10. UI - ORDEN DE AMASADO (CON BOTÓN DUPLICAR)
+// 10. UI - ORDEN DE AMASADO
 // ============================================================
 
 function renderizarOrdenAmasado() {
     const container = document.getElementById('vista-container');
-    const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
-    const orden = obtenerOrdenAmasado(datos, fecha);
-    const resumen = obtenerResumenOrdenAmasado(orden);
-    const validacion = validarOrdenAmasado(orden);
     
-    let todasAsignadas = true;
-    let totalSinAsignar = 0;
+    container.innerHTML = '<div class="loading">Cargando orden de amasado...</div>';
     
-    if (orden.lineas) {
-        orden.lineas.forEach(linea => {
-            const total = linea.total || 0;
-            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
-            if (asignado !== total) {
-                todasAsignadas = false;
-                totalSinAsignar += (total - asignado);
-            }
-        });
-    }
-    
-    let html = `
-        <div class="vista active">
-            <div class="vista-header">
-                <div>
-                    <h2>🔄 Orden de Amasado</h2>
-                    <span class="subtitle">Registro de producción de masa para el día siguiente</span>
-                </div>
-                <div>
-                    <span class="subtitle" style="font-weight: bold; color: ${orden.aplicadoAProduccion ? 'var(--success)' : 'var(--warning)'};">
-                        ${orden.aplicadoAProduccion ? '✅ Aplicado a producción' : '⏳ Pendiente de aplicar'}
-                    </span>
-                </div>
-            </div>
-            
-            <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>📅 Fecha Amasado</label>
-                        <input type="date" id="fecha-amasado" value="${fecha}" onchange="renderizarOrdenAmasado()">
+    setTimeout(() => {
+        const datos = cargarDatos();
+        const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+        const orden = obtenerOrdenAmasado(datos, fecha);
+        const resumen = obtenerResumenOrdenAmasado(orden);
+        const validacion = validarOrdenAmasado(orden);
+        
+        let todasAsignadas = true;
+        let totalSinAsignar = 0;
+        
+        if (orden.lineas) {
+            orden.lineas.forEach(linea => {
+                const total = linea.total || 0;
+                const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+                if (asignado !== total) {
+                    todasAsignadas = false;
+                    totalSinAsignar += (total - asignado);
+                }
+            });
+        }
+        
+        let html = `
+            <div class="vista active">
+                <div class="vista-header">
+                    <div>
+                        <h2>🔄 Orden de Amasado</h2>
+                        <span class="subtitle">Registro de producción de masa para el día siguiente</span>
                     </div>
-                    <div class="form-group">
-                        <label>📅 Uso Previsto</label>
-                        <input type="text" id="fecha-uso" value="${orden.fechaUso}" readonly style="background: #f0f0f0; font-weight: bold;">
-                    </div>
-                    <div class="form-group">
-                        <label>👤 Operario (opcional)</label>
-                        <input type="text" id="operario-amasado" value="${orden.operario || ''}" placeholder="Opcional" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    <div>
+                        <span class="subtitle" style="font-weight: bold; color: ${orden.aplicadoAProduccion ? 'var(--success)' : 'var(--warning)'};">
+                            ${orden.aplicadoAProduccion ? '✅ Aplicado a producción' : '⏳ Pendiente de aplicar'}
+                        </span>
+                        ${orden.aplicadoAProduccion ? `<span style="font-size: 0.7rem; display: block; color: #666;">${new Date(orden.aplicadoEn).toLocaleString()}</span>` : ''}
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>⏰ Hora Inicio (opcional)</label>
-                        <input type="time" id="hora-inicio" value="${orden.horaInicio || ''}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
-                    </div>
-                    <div class="form-group">
-                        <label>⏰ Hora Fin (opcional)</label>
-                        <input type="time" id="hora-fin" value="${orden.horaFin || ''}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
-                    </div>
-                    <div class="form-group">
-                        <label>🌡️ Temperatura (°C) (opcional)</label>
-                        <input type="number" id="temp-amasado" value="${orden.temperatura || ''}" step="0.5" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
-                    </div>
-                    <div class="form-group">
-                        <label>💧 Humedad (%) (opcional)</label>
-                        <input type="number" id="humedad-amasado" value="${orden.humedad || ''}" step="1" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="tabla-container">
-                <div class="flex-between mb-10">
-                    <h3>📦 Bolas a Amasar</h3>
-                    ${!orden.aplicadoAProduccion ? `
-                        <div>
-                            <button class="btn btn-primary btn-sm" id="btn-añadir-linea">➕ Añadir Línea</button>
-                            <button class="btn btn-success btn-sm" id="btn-duplicar-todas" style="background: #28a745; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 4px;">📋 Duplicar Todas</button>
+                
+                <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>📅 Fecha Amasado</label>
+                            <input type="date" id="fecha-amasado" value="${fecha}" onchange="renderizarOrdenAmasado()" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                         </div>
-                    ` : ''}
+                        <div class="form-group">
+                            <label>📅 Uso Previsto</label>
+                            <input type="text" id="fecha-uso" value="${orden.fechaUso} (${formatearFechaLarga(orden.fechaUso)})" readonly style="background: #f0f0f0; font-weight: bold;">
+                        </div>
+                        <div class="form-group">
+                            <label>👤 Operario (opcional)</label>
+                            <input type="text" id="operario-amasado" value="${orden.operario || ''}" placeholder="Opcional" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>⏰ Hora Inicio (opcional)</label>
+                            <input type="time" id="hora-inicio" value="${orden.horaInicio || ''}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        </div>
+                        <div class="form-group">
+                            <label>⏰ Hora Fin (opcional)</label>
+                            <input type="time" id="hora-fin" value="${orden.horaFin || ''}" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        </div>
+                        <div class="form-group">
+                            <label>🌡️ Temperatura (°C) (opcional)</label>
+                            <input type="number" id="temp-amasado" value="${orden.temperatura || ''}" step="0.5" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        </div>
+                        <div class="form-group">
+                            <label>💧 Humedad (%) (opcional)</label>
+                            <input type="number" id="humedad-amasado" value="${orden.humedad || ''}" step="1" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        </div>
+                    </div>
                 </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Tipo Bola</th>
-                            <th>Peso</th>
-                            <th>Caja</th>
-                            <th>Nº Cajas</th>
-                            <th>Bolas/Caja</th>
-                            <th>Total</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-    `;
-    
-    if (!orden.lineas || orden.lineas.length === 0) {
-        html += `
-            <tr>
-                <td colspan="7" class="text-center" style="padding: 30px; color: #999;">
-                    No hay líneas de amasado. Haz clic en "➕ Añadir Línea" para comenzar.
-                </td>
-            </tr>
+                
+                <div class="tabla-container">
+                    <div class="flex-between mb-10">
+                        <h3>📦 Bolas a Amasar</h3>
+                        ${!orden.aplicadoAProduccion ? `
+                            <div>
+                                <button class="btn btn-primary btn-sm" id="btn-añadir-linea">➕ Añadir Línea</button>
+                                <button class="btn btn-success btn-sm" id="btn-duplicar-todas" style="background: #28a745; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; margin-left: 4px;">📋 Duplicar Todas</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tipo Bola</th>
+                                <th>Peso</th>
+                                <th>Caja</th>
+                                <th>Nº Cajas</th>
+                                <th>Bolas/Caja</th>
+                                <th>Total</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
         `;
-    } else {
-        orden.lineas.forEach((linea, index) => {
-            const config = obtenerConfiguracionBola(linea.tipoBola);
-            const total = linea.total || 0;
-            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
-            const estado = asignado === total ? '✅' : '⚠️';
-            
+        
+        if (!orden.lineas || orden.lineas.length === 0) {
             html += `
                 <tr>
-                    <td><strong>${linea.tipoBola}</strong></td>
-                    <td>${linea.peso}g</td>
-                    <td>${linea.tipoCaja}</td>
-                    <td>
-                        ${orden.aplicadoAProduccion ? linea.cajas : `
-                            <input type="number" min="1" max="${config ? config.configuraciones.find(c => c.tipoCaja === linea.tipoCaja)?.maxCajas || 25 : 25}" 
-                                   style="width: 60px;" value="${linea.cajas || 0}"
-                                   data-linea-index="${index}" data-campo="cajas"
-                                   onchange="actualizarLineaAmasado(${index}, 'cajas', this.value)">
-                        `}
-                    </td>
-                    <td>
-                        ${orden.aplicadoAProduccion ? linea.bolasPorCaja : `
-                            <select data-linea-index="${index}" data-campo="bolasPorCaja" 
-                                    onchange="actualizarLineaAmasado(${index}, 'bolasPorCaja', this.value)">
-                                ${(config ? config.configuraciones.find(c => c.tipoCaja === linea.tipoCaja)?.opcionesBolas || [8, 10] : [8, 10]).map(op => `
-                                    <option value="${op}" ${op == linea.bolasPorCaja ? 'selected' : ''}>${op}</option>
-                                `).join('')}
-                            </select>
-                        `}
-                    </td>
-                    <td><strong>${total}</strong> ${estado}</td>
-                    <td>
-                        ${!orden.aplicadoAProduccion ? `
-                            <button class="btn btn-success btn-sm" onclick="duplicarLineaAmasado(${index})" title="Duplicar esta línea" style="background: #28a745; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; margin-right: 4px;">📋</button>
-                            <button class="btn btn-danger btn-sm" onclick="eliminarLineaAmasado(${index})">🗑️</button>
-                        ` : ''}
+                    <td colspan="7" class="text-center" style="padding: 30px; color: #999;">
+                        No hay líneas de amasado. Haz clic en "➕ Añadir Línea" para comenzar.
                     </td>
                 </tr>
             `;
-        });
-    }
-    
-    html += `
-                    </tbody>
-                </table>
-            </div>
-            
-            <div style="margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <div class="flex-between mb-10">
-                    <h3>📦 Distribución a Productos Finales</h3>
-                    <span style="font-size: 0.9rem; color: ${todasAsignadas ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-global">
-                        ${todasAsignadas ? '✅ Todas las bolas asignadas' : `⚠️ ${totalSinAsignar} bolas sin asignar`}
-                    </span>
-                </div>
-    `;
-    
-    if (orden.lineas && orden.lineas.length > 0) {
-        orden.lineas.forEach((linea, index) => {
-            const config = obtenerConfiguracionBola(linea.tipoBola);
-            const total = linea.total || 0;
-            const productosDestino = config ? config.productosDestino : [];
-            const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
-            const restante = total - asignado;
-            
-            html += `
-                <div style="border: 1px solid #eee; padding: 15px; border-radius: 8px; margin-top: 10px; background: ${restante === 0 && total > 0 ? '#F0FFF0' : '#FFF8F8'};">
-                    <h4>${linea.tipoBola} (${linea.peso}g) - Total: ${total} bolas</h4>
-                    <div class="form-row">
-            `;
-            
-            productosDestino.forEach(producto => {
-                const valor = linea.distribucion?.[producto] || 0;
+        } else {
+            orden.lineas.forEach((linea, index) => {
+                const config = obtenerConfiguracionBola(linea.tipoBola);
+                const total = linea.total || 0;
+                const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+                const estado = asignado === total ? '✅' : '⚠️';
+                
                 html += `
-                    <div class="form-group">
-                        <label>${producto}</label>
-                        <input type="number" min="0" step="1" 
-                               style="width: 80px;" value="${valor}"
-                               data-linea-index="${index}" data-producto="${producto}"
-                               onblur="actualizarDistribucion(${index}, '${producto}', this.value)"
-                               ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                    <tr>
+                        <td><strong>${linea.tipoBola}</strong></td>
+                        <td>${linea.peso}g</td>
+                        <td>${linea.tipoCaja}</td>
+                        <td>
+                            ${orden.aplicadoAProduccion ? linea.cajas : `
+                                <input type="number" min="1" max="${config ? config.configuraciones.find(c => c.tipoCaja === linea.tipoCaja)?.maxCajas || 25 : 25}" 
+                                       style="width: 60px;" value="${linea.cajas || 0}"
+                                       data-linea-index="${index}" data-campo="cajas"
+                                       onchange="actualizarLineaAmasado(${index}, 'cajas', this.value)">
+                            `}
+                        </td>
+                        <td>
+                            ${orden.aplicadoAProduccion ? linea.bolasPorCaja : `
+                                <select data-linea-index="${index}" data-campo="bolasPorCaja" 
+                                        onchange="actualizarLineaAmasado(${index}, 'bolasPorCaja', this.value)">
+                                    ${(config ? config.configuraciones.find(c => c.tipoCaja === linea.tipoCaja)?.opcionesBolas || [8, 10] : [8, 10]).map(op => `
+                                        <option value="${op}" ${op == linea.bolasPorCaja ? 'selected' : ''}>${op}</option>
+                                    `).join('')}
+                                </select>
+                            `}
+                        </td>
+                        <td><strong>${total}</strong> ${estado}</td>
+                        <td>
+                            ${!orden.aplicadoAProduccion ? `
+                                <button class="btn btn-success btn-sm" onclick="duplicarLineaAmasado(${index})" title="Duplicar esta línea" style="background: #28a745; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; margin-right: 4px;">📋</button>
+                                <button class="btn btn-danger btn-sm" onclick="eliminarLineaAmasado(${index})">🗑️</button>
+                            ` : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+        
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div style="margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <div class="flex-between mb-10">
+                        <h3>📦 Distribución a Productos Finales</h3>
+                        <span style="font-size: 0.9rem; color: ${todasAsignadas ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-global">
+                            ${todasAsignadas ? '✅ Todas las bolas asignadas' : `⚠️ ${totalSinAsignar} bolas sin asignar`}
+                        </span>
+                    </div>
+        `;
+        
+        if (orden.lineas && orden.lineas.length > 0) {
+            orden.lineas.forEach((linea, index) => {
+                const config = obtenerConfiguracionBola(linea.tipoBola);
+                const total = linea.total || 0;
+                const productosDestino = config ? config.productosDestino : [];
+                const asignado = linea.distribucion ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
+                const restante = total - asignado;
+                
+                html += `
+                    <div style="border: 1px solid #eee; padding: 15px; border-radius: 8px; margin-top: 10px; background: ${restante === 0 && total > 0 ? '#F0FFF0' : '#FFF8F8'};">
+                        <h4>${linea.tipoBola} (${linea.peso}g) - Total: ${total} bolas</h4>
+                        <div class="form-row">
+                `;
+                
+                productosDestino.forEach(producto => {
+                    const valor = linea.distribucion?.[producto] || 0;
+                    html += `
+                        <div class="form-group">
+                            <label>${producto}</label>
+                            <input type="number" min="0" step="1" 
+                                   style="width: 80px;" value="${valor}"
+                                   data-linea-index="${index}" data-producto="${producto}"
+                                   onblur="actualizarDistribucion(${index}, '${producto}', this.value)"
+                                   ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                        </div>
+                    `;
+                });
+                
+                html += `
+                        </div>
+                        <div style="margin-top: 10px; font-weight: bold; color: ${restante === 0 ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-${index}">
+                            ${restante === 0 ? '✅ Todas las bolas asignadas' : `🔴 Restante sin asignar: ${restante} bolas`}
+                        </div>
                     </div>
                 `;
             });
-            
+        } else {
             html += `
-                    </div>
-                    <div style="margin-top: 10px; font-weight: bold; color: ${restante === 0 ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-${index}">
-                        ${restante === 0 ? '✅ Todas las bolas asignadas' : `🔴 Restante sin asignar: ${restante} bolas`}
-                    </div>
+                <div style="padding: 20px; color: #999; text-align: center;">
+                    Añade líneas de amasado para distribuir las bolas a productos.
                 </div>
             `;
-        });
-    } else {
+        }
+        
         html += `
-            <div style="padding: 20px; color: #999; text-align: center;">
-                Añade líneas de amasado para distribuir las bolas a productos.
+                </div>
+                
+                <div class="resumen-grid" style="margin-top: 20px;">
+                    <div class="resumen-card">
+                        <div class="label">Total Bolas</div>
+                        <div class="value primary resumen-total-bolas">${resumen.totalBolas}</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Peso Total</div>
+                        <div class="value resumen-peso-total">${resumen.pesoTotal} kg</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Total Cajas</div>
+                        <div class="value">${resumen.totalCajas}</div>
+                    </div>
+                    <div class="resumen-card">
+                        <div class="label">Torres</div>
+                        <div class="value">${resumen.totalTorres}</div>
+                    </div>
+                </div>
+                
+                ${!orden.aplicadoAProduccion ? `
+                    <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};" class="validacion-orden">
+                        ${validacion.valida ? 
+                            '✅ La orden está completa y lista para aplicar a producción' :
+                            '❌ ' + validacion.errores.join('. ')
+                        }
+                    </div>
+                ` : ''}
+                
+                <div class="flex gap-10" style="margin-top: 20px; flex-wrap: wrap;">
+                    ${!orden.aplicadoAProduccion ? `
+                        <button class="btn btn-primary" id="btn-guardar-orden">💾 Guardar Orden</button>
+                        <button class="btn btn-success" id="btn-aplicar-produccion">📥 Aplicar a Producción</button>
+                        <button class="btn btn-danger" id="btn-eliminar-orden">🗑️ Eliminar Orden</button>
+                        <button class="btn btn-info" id="btn-ver-produccion" style="background: #17a2b8; color: white;">📋 Ver en Producción</button>
+                    ` : `
+                        <button class="btn btn-secondary" id="btn-recargar">🔄 Recargar</button>
+                        <button class="btn btn-warning" id="btn-desaplicar">↩️ Deshacer Aplicación</button>
+                    `}
+                    <button class="btn btn-secondary" id="btn-exportar-csv">📥 Exportar CSV</button>
+                </div>
+                
+                ${orden.aplicadoAProduccion ? `
+                    <div style="margin-top: 15px; padding: 15px; background: #E8F5E9; border-radius: 8px; border-left: 4px solid var(--success);">
+                        <p style="font-size: 0.9rem; color: #2E7D32;">
+                            ✅ Esta orden fue aplicada a producción el ${new Date(orden.aplicadoEn).toLocaleString()}
+                        </p>
+                    </div>
+                ` : `
+                    <div style="margin-top: 15px; padding: 15px; background: #FFF8E1; border-radius: 8px; border-left: 4px solid var(--warning);">
+                        <p style="font-size: 0.9rem; color: #666;">
+                            ℹ️ <strong>Nota:</strong> La orden se aplicará al inventario de producción del día <strong>${formatearFechaLarga(orden.fechaUso)}</strong>.
+                            Asegúrate de que todas las bolas estén distribuidas correctamente antes de aplicar.
+                        </p>
+                    </div>
+                `}
             </div>
         `;
-    }
-    
-    html += `
-            </div>
-            
-            <div class="resumen-grid" style="margin-top: 20px;">
-                <div class="resumen-card">
-                    <div class="label">Total Bolas</div>
-                    <div class="value primary resumen-total-bolas">${resumen.totalBolas}</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Peso Total</div>
-                    <div class="value resumen-peso-total">${resumen.pesoTotal} kg</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Total Cajas</div>
-                    <div class="value">${resumen.totalCajas}</div>
-                </div>
-                <div class="resumen-card">
-                    <div class="label">Torres</div>
-                    <div class="value">${resumen.totalTorres}</div>
-                </div>
-            </div>
-            
-            ${!orden.aplicadoAProduccion ? `
-                <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};" class="validacion-orden">
-                    ${validacion.valida ? 
-                        '✅ La orden está completa y lista para aplicar a producción' :
-                        '❌ ' + validacion.errores.join('. ')
-                    }
-                </div>
-            ` : ''}
-            
-            <div class="flex gap-10" style="margin-top: 20px; flex-wrap: wrap;">
-                ${!orden.aplicadoAProduccion ? `
-                    <button class="btn btn-primary" id="btn-guardar-orden">💾 Guardar Orden</button>
-                    <button class="btn btn-success" id="btn-aplicar-produccion">📥 Aplicar a Producción</button>
-                    <button class="btn btn-danger" id="btn-eliminar-orden">🗑️ Eliminar Orden</button>
-                    <button class="btn btn-info" id="btn-ver-produccion" style="background: #17a2b8; color: white;">📋 Ver en Producción</button>
-                ` : `
-                    <button class="btn btn-secondary" id="btn-recargar">🔄 Recargar</button>
-                    <button class="btn btn-warning" id="btn-desaplicar">↩️ Deshacer Aplicación</button>
-                `}
-                <button class="btn btn-secondary" id="btn-exportar-csv">📥 Exportar CSV</button>
-            </div>
-            
-            ${orden.aplicadoAProduccion ? `
-                <div style="margin-top: 15px; padding: 15px; background: #E8F5E9; border-radius: 8px; border-left: 4px solid var(--success);">
-                    <p style="font-size: 0.9rem; color: #2E7D32;">
-                        ✅ Esta orden fue aplicada a producción el ${new Date(orden.aplicadoEn).toLocaleString()}
-                    </p>
-                </div>
-            ` : `
-                <div style="margin-top: 15px; padding: 15px; background: #FFF8E1; border-radius: 8px; border-left: 4px solid var(--warning);">
-                    <p style="font-size: 0.9rem; color: #666;">
-                        ℹ️ <strong>Nota:</strong> La orden se aplicará al inventario de producción del día <strong>${orden.fechaUso}</strong>.
-                        Asegúrate de que todas las bolas estén distribuidas correctamente antes de aplicar.
-                    </p>
-                </div>
-            `}
-        </div>
-    `;
-    
-    container.innerHTML = html;
-    
-    // ============================================================
-    // ASIGNAR EVENTOS CON addEventListener
-    // ============================================================
-    
-    const btnAddLinea = document.getElementById('btn-añadir-linea');
-    if (btnAddLinea) {
-        btnAddLinea.addEventListener('click', function() {
-            mostrarModalLineaAmasado();
-        });
-    }
-    
-    const btnDuplicarTodas = document.getElementById('btn-duplicar-todas');
-    if (btnDuplicarTodas) {
-        btnDuplicarTodas.addEventListener('click', function() {
-            duplicarTodasLineasAmasado();
-        });
-    }
-    
-    const btnGuardar = document.getElementById('btn-guardar-orden');
-    if (btnGuardar) {
-        btnGuardar.addEventListener('click', function() {
-            guardarOrdenAmasado();
-        });
-    }
-    
-    const btnAplicar = document.getElementById('btn-aplicar-produccion');
-    if (btnAplicar) {
-        btnAplicar.addEventListener('click', function() {
-            aplicarOrdenAProduccionUI();
-        });
-    }
-    
-    const btnEliminar = document.getElementById('btn-eliminar-orden');
-    if (btnEliminar) {
-        btnEliminar.addEventListener('click', function() {
-            eliminarOrdenAmasado();
-        });
-    }
-    
-    const btnRecargar = document.getElementById('btn-recargar');
-    if (btnRecargar) {
-        btnRecargar.addEventListener('click', function() {
-            renderizarOrdenAmasado();
-        });
-    }
-    
-    const btnDesaplicar = document.getElementById('btn-desaplicar');
-    if (btnDesaplicar) {
-        btnDesaplicar.addEventListener('click', function() {
-            desaplicarOrdenAmasado();
-        });
-    }
-    
-    const btnExportar = document.getElementById('btn-exportar-csv');
-    if (btnExportar) {
-        btnExportar.addEventListener('click', function() {
-            exportarOrdenAmasado();
-        });
-    }
-    
-    const btnVerProduccion = document.getElementById('btn-ver-produccion');
-    if (btnVerProduccion) {
-        btnVerProduccion.addEventListener('click', function() {
-            document.getElementById('fecha-produccion').value = orden.fechaUso;
-            cambiarVista('produccion');
-        });
-    }
+        
+        container.innerHTML = html;
+        
+        // ASIGNAR EVENTOS CON addEventListener
+        const btnAddLinea = document.getElementById('btn-añadir-linea');
+        if (btnAddLinea) {
+            btnAddLinea.addEventListener('click', function() {
+                mostrarModalLineaAmasado();
+            });
+        }
+        
+        const btnDuplicarTodas = document.getElementById('btn-duplicar-todas');
+        if (btnDuplicarTodas) {
+            btnDuplicarTodas.addEventListener('click', function() {
+                duplicarTodasLineasAmasado();
+            });
+        }
+        
+        const btnGuardar = document.getElementById('btn-guardar-orden');
+        if (btnGuardar) {
+            btnGuardar.addEventListener('click', function() {
+                guardarOrdenAmasado();
+            });
+        }
+        
+        const btnAplicar = document.getElementById('btn-aplicar-produccion');
+        if (btnAplicar) {
+            btnAplicar.addEventListener('click', function() {
+                aplicarOrdenAProduccionUI();
+            });
+        }
+        
+        const btnEliminar = document.getElementById('btn-eliminar-orden');
+        if (btnEliminar) {
+            btnEliminar.addEventListener('click', function() {
+                eliminarOrdenAmasado();
+            });
+        }
+        
+        const btnRecargar = document.getElementById('btn-recargar');
+        if (btnRecargar) {
+            btnRecargar.addEventListener('click', function() {
+                renderizarOrdenAmasado();
+            });
+        }
+        
+        const btnDesaplicar = document.getElementById('btn-desaplicar');
+        if (btnDesaplicar) {
+            btnDesaplicar.addEventListener('click', function() {
+                desaplicarOrdenAmasado();
+            });
+        }
+        
+        const btnExportar = document.getElementById('btn-exportar-csv');
+        if (btnExportar) {
+            btnExportar.addEventListener('click', function() {
+                exportarOrdenAmasado();
+            });
+        }
+        
+        const btnVerProduccion = document.getElementById('btn-ver-produccion');
+        if (btnVerProduccion) {
+            btnVerProduccion.addEventListener('click', function() {
+                document.getElementById('fecha-produccion').value = orden.fechaUso;
+                cambiarVista('produccion');
+            });
+        }
+    }, 50);
 }
 
 // ============================================================
-// 11. UI - CLIENTES (SIMPLIFICADO)
+// 11. UI - CLIENTES (MEJORADO)
 // ============================================================
 
 function renderizarClientes() {
@@ -1647,7 +1936,7 @@ function renderizarClientes() {
             <div class="vista-header">
                 <div>
                     <h2>👥 Clientes</h2>
-                    <span class="subtitle">${datos.clientes.filter(c => c.activo).length} clientes activos</span>
+                    <span class="subtitle">${datos.clientes.filter(c => c.activo).length} clientes activos de ${datos.clientes.length} totales</span>
                 </div>
                 <button class="btn btn-primary" onclick="mostrarFormularioCliente()">➕ Añadir Cliente</button>
             </div>
@@ -1655,12 +1944,12 @@ function renderizarClientes() {
                 <h3 id="form-cliente-titulo">Añadir Cliente</h3>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="cliente-codigo">Código</label>
-                        <input type="text" id="cliente-codigo" placeholder="Ej: 100.0">
+                        <label for="cliente-codigo">Código *</label>
+                        <input type="text" id="cliente-codigo" placeholder="Ej: 100.0" required>
                     </div>
                     <div class="form-group">
-                        <label for="cliente-nombre">Nombre</label>
-                        <input type="text" id="cliente-nombre" placeholder="Nombre del cliente">
+                        <label for="cliente-nombre">Nombre *</label>
+                        <input type="text" id="cliente-nombre" placeholder="Nombre del cliente" required>
                     </div>
                 </div>
                 <input type="hidden" id="cliente-editando-id">
@@ -1683,27 +1972,37 @@ function renderizarClientes() {
                     <tbody>
     `;
 
-    datos.clientes.forEach(cliente => {
+    if (datos.clientes.length === 0) {
         html += `
             <tr>
-                <td>${cliente.id}</td>
-                <td><strong>${cliente.codigo}</strong></td>
-                <td>${cliente.nombre}</td>
-                <td>
-                    <span style="color: ${cliente.activo ? 'var(--success)' : 'var(--error)'}">
-                        ${cliente.activo ? '✅ Activo' : '❌ Inactivo'}
-                    </span>
-                </td>
-                <td>
-                    <button class="btn btn-secondary btn-sm" onclick="editarCliente(${cliente.id})">✏️</button>
-                    ${cliente.activo ? 
-                        `<button class="btn btn-danger btn-sm" onclick="eliminarCliente(${cliente.id})">🗑️</button>` :
-                        `<button class="btn btn-success btn-sm" onclick="reactivarCliente(${cliente.id})">↩️</button>`
-                    }
+                <td colspan="5" class="text-center" style="padding: 30px; color: #999;">
+                    No hay clientes registrados
                 </td>
             </tr>
         `;
-    });
+    } else {
+        datos.clientes.forEach(cliente => {
+            html += `
+                <tr>
+                    <td>${cliente.id}</td>
+                    <td><strong>${cliente.codigo}</strong></td>
+                    <td>${cliente.nombre}</td>
+                    <td>
+                        <span style="color: ${cliente.activo ? 'var(--success)' : 'var(--error)'}">
+                            ${cliente.activo ? '✅ Activo' : '❌ Inactivo'}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="editarCliente(${cliente.id})" title="Editar">✏️</button>
+                        ${cliente.activo ? 
+                            `<button class="btn btn-danger btn-sm" onclick="eliminarCliente(${cliente.id})" title="Desactivar">🗑️</button>` :
+                            `<button class="btn btn-success btn-sm" onclick="reactivarCliente(${cliente.id})" title="Reactivar">↩️</button>`
+                        }
+                    </td>
+                </tr>
+            `;
+        });
+    }
 
     html += `
                     </tbody>
@@ -1716,15 +2015,22 @@ function renderizarClientes() {
 }
 
 function mostrarFormularioCliente() {
-    document.getElementById('form-cliente-container').style.display = 'block';
-    document.getElementById('form-cliente-titulo').textContent = 'Añadir Cliente';
-    document.getElementById('cliente-codigo').value = '';
-    document.getElementById('cliente-nombre').value = '';
-    document.getElementById('cliente-editando-id').value = '';
+    const container = document.getElementById('form-cliente-container');
+    if (container) {
+        container.style.display = 'block';
+        document.getElementById('form-cliente-titulo').textContent = 'Añadir Cliente';
+        document.getElementById('cliente-codigo').value = '';
+        document.getElementById('cliente-nombre').value = '';
+        document.getElementById('cliente-editando-id').value = '';
+        document.getElementById('cliente-codigo').focus();
+    }
 }
 
 function cerrarFormularioCliente() {
-    document.getElementById('form-cliente-container').style.display = 'none';
+    const container = document.getElementById('form-cliente-container');
+    if (container) {
+        container.style.display = 'none';
+    }
 }
 
 function guardarCliente() {
@@ -1732,8 +2038,15 @@ function guardarCliente() {
     const nombre = document.getElementById('cliente-nombre').value.trim();
     const editandoId = document.getElementById('cliente-editando-id').value;
 
-    if (!codigo || !nombre) {
-        mostrarNotificacion('Código y nombre son obligatorios', 'error');
+    if (!codigo) {
+        mostrarNotificacion('❌ El código es obligatorio', 'error');
+        document.getElementById('cliente-codigo').focus();
+        return;
+    }
+    
+    if (!nombre) {
+        mostrarNotificacion('❌ El nombre es obligatorio', 'error');
+        document.getElementById('cliente-nombre').focus();
         return;
     }
 
@@ -1744,18 +2057,20 @@ function guardarCliente() {
         if (cliente) {
             const duplicado = datos.clientes.find(c => c.codigo === codigo && c.id !== parseInt(editandoId));
             if (duplicado) {
-                mostrarNotificacion('El código ya está en uso', 'error');
+                mostrarNotificacion('❌ El código ya está en uso', 'error');
+                document.getElementById('cliente-codigo').focus();
                 return;
             }
             cliente.codigo = codigo;
             cliente.nombre = nombre;
             guardarDatos(datos);
-            mostrarNotificacion('Cliente actualizado correctamente', 'success');
+            mostrarNotificacion('✅ Cliente actualizado correctamente', 'success');
         }
     } else {
         const duplicado = datos.clientes.find(c => c.codigo === codigo);
         if (duplicado) {
-            mostrarNotificacion('El código ya está en uso', 'error');
+            mostrarNotificacion('❌ El código ya está en uso', 'error');
+            document.getElementById('cliente-codigo').focus();
             return;
         }
         const nuevoCliente = {
@@ -1766,7 +2081,7 @@ function guardarCliente() {
         };
         datos.clientes.push(nuevoCliente);
         guardarDatos(datos);
-        mostrarNotificacion('Cliente añadido correctamente', 'success');
+        mostrarNotificacion('✅ Cliente añadido correctamente', 'success');
     }
 
     cerrarFormularioCliente();
@@ -1776,25 +2091,32 @@ function guardarCliente() {
 function editarCliente(id) {
     const datos = cargarDatos();
     const cliente = datos.clientes.find(c => c.id === id);
-    if (!cliente) return;
+    if (!cliente) {
+        mostrarNotificacion('❌ Cliente no encontrado', 'error');
+        return;
+    }
 
     document.getElementById('form-cliente-container').style.display = 'block';
     document.getElementById('form-cliente-titulo').textContent = 'Editar Cliente';
     document.getElementById('cliente-codigo').value = cliente.codigo;
     document.getElementById('cliente-nombre').value = cliente.nombre;
     document.getElementById('cliente-editando-id').value = cliente.id;
+    document.getElementById('cliente-codigo').focus();
 }
 
 function eliminarCliente(id) {
-    if (!confirm('¿Estás seguro de desactivar este cliente?')) return;
+    const cliente = obtenerClientePorId(cargarDatos(), id);
+    if (!cliente) return;
+    
+    if (!confirm(`⚠️ ¿Estás seguro de desactivar el cliente "${cliente.nombre}"?`)) return;
 
     const datos = cargarDatos();
-    const cliente = datos.clientes.find(c => c.id === id);
-    if (cliente) {
-        cliente.activo = false;
+    const clienteToUpdate = datos.clientes.find(c => c.id === id);
+    if (clienteToUpdate) {
+        clienteToUpdate.activo = false;
         guardarDatos(datos);
         renderizarClientes();
-        mostrarNotificacion('Cliente desactivado correctamente', 'success');
+        mostrarNotificacion(`✅ Cliente "${cliente.nombre}" desactivado correctamente`, 'success');
     }
 }
 
@@ -1805,12 +2127,12 @@ function reactivarCliente(id) {
         cliente.activo = true;
         guardarDatos(datos);
         renderizarClientes();
-        mostrarNotificacion('Cliente reactivado correctamente', 'success');
+        mostrarNotificacion(`✅ Cliente "${cliente.nombre}" reactivado correctamente`, 'success');
     }
 }
 
 // ============================================================
-// 12. UI - PRODUCTOS (SIMPLIFICADO)
+// 12. UI - PRODUCTOS (MEJORADO)
 // ============================================================
 
 function renderizarProductos() {
@@ -1822,7 +2144,7 @@ function renderizarProductos() {
             <div class="vista-header">
                 <div>
                     <h2>📦 Productos</h2>
-                    <span class="subtitle">${datos.productos.filter(p => p.activo).length} productos activos</span>
+                    <span class="subtitle">${datos.productos.filter(p => p.activo).length} productos activos de ${datos.productos.length} totales</span>
                 </div>
                 <button class="btn btn-primary" onclick="mostrarFormularioProducto()">➕ Añadir Producto</button>
             </div>
@@ -1830,8 +2152,8 @@ function renderizarProductos() {
                 <h3 id="form-producto-titulo">Añadir Producto</h3>
                 <div class="form-row">
                     <div class="form-group">
-                        <label for="producto-nombre">Nombre</label>
-                        <input type="text" id="producto-nombre" placeholder="Ej: Pizza Familiar">
+                        <label for="producto-nombre">Nombre *</label>
+                        <input type="text" id="producto-nombre" placeholder="Ej: Pizza Familiar" required>
                     </div>
                     <div class="form-group">
                         <label for="producto-precioCosto">Precio Coste (€)</label>
@@ -1864,35 +2186,45 @@ function renderizarProductos() {
                     <tbody>
     `;
 
-    datos.productos.forEach(producto => {
-        const margen = producto.precioVenta > 0 
-            ? Math.round(((producto.precioVenta - producto.precioCosto) / producto.precioVenta) * 10000) / 100 
-            : 0;
-
+    if (datos.productos.length === 0) {
         html += `
             <tr>
-                <td>${producto.id}</td>
-                <td><strong>${producto.nombre}</strong></td>
-                <td>${producto.precioCosto.toFixed(2)} €</td>
-                <td>${producto.precioVenta.toFixed(2)} €</td>
-                <td style="color: ${margen > 30 ? 'var(--success)' : margen > 15 ? 'var(--warning)' : 'var(--error)'}">
-                    ${margen}%
-                </td>
-                <td>
-                    <span style="color: ${producto.activo ? 'var(--success)' : 'var(--error)'}">
-                        ${producto.activo ? '✅ Activo' : '❌ Inactivo'}
-                    </span>
-                </td>
-                <td>
-                    <button class="btn btn-secondary btn-sm" onclick="editarProducto(${producto.id})">✏️</button>
-                    ${producto.activo ? 
-                        `<button class="btn btn-danger btn-sm" onclick="eliminarProducto(${producto.id})">🗑️</button>` :
-                        `<button class="btn btn-success btn-sm" onclick="reactivarProducto(${producto.id})">↩️</button>`
-                    }
+                <td colspan="7" class="text-center" style="padding: 30px; color: #999;">
+                    No hay productos registrados
                 </td>
             </tr>
         `;
-    });
+    } else {
+        datos.productos.forEach(producto => {
+            const margen = producto.precioVenta > 0 
+                ? Math.round(((producto.precioVenta - producto.precioCosto) / producto.precioVenta) * 10000) / 100 
+                : 0;
+
+            html += `
+                <tr>
+                    <td>${producto.id}</td>
+                    <td><strong>${producto.nombre}</strong></td>
+                    <td>${producto.precioCosto.toFixed(2)} €</td>
+                    <td>${producto.precioVenta.toFixed(2)} €</td>
+                    <td style="color: ${margen > 30 ? 'var(--success)' : margen > 15 ? 'var(--warning)' : 'var(--error)'}">
+                        ${margen}%
+                    </td>
+                    <td>
+                        <span style="color: ${producto.activo ? 'var(--success)' : 'var(--error)'}">
+                            ${producto.activo ? '✅ Activo' : '❌ Inactivo'}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="editarProducto(${producto.id})" title="Editar">✏️</button>
+                        ${producto.activo ? 
+                            `<button class="btn btn-danger btn-sm" onclick="eliminarProducto(${producto.id})" title="Desactivar">🗑️</button>` :
+                            `<button class="btn btn-success btn-sm" onclick="reactivarProducto(${producto.id})" title="Reactivar">↩️</button>`
+                        }
+                    </td>
+                </tr>
+            `;
+        });
+    }
 
     html += `
                     </tbody>
@@ -1911,6 +2243,7 @@ function mostrarFormularioProducto() {
     document.getElementById('producto-precioCosto').value = '';
     document.getElementById('producto-precioVenta').value = '';
     document.getElementById('producto-editando-id').value = '';
+    document.getElementById('producto-nombre').focus();
 }
 
 function cerrarFormularioProducto() {
@@ -1924,7 +2257,8 @@ function guardarProducto() {
     const editandoId = document.getElementById('producto-editando-id').value;
 
     if (!nombre) {
-        mostrarNotificacion('El nombre es obligatorio', 'error');
+        mostrarNotificacion('❌ El nombre es obligatorio', 'error');
+        document.getElementById('producto-nombre').focus();
         return;
     }
 
@@ -1935,19 +2269,21 @@ function guardarProducto() {
         if (producto) {
             const duplicado = datos.productos.find(p => p.nombre.toLowerCase() === nombre.toLowerCase() && p.id !== parseInt(editandoId));
             if (duplicado) {
-                mostrarNotificacion('El nombre ya está en uso', 'error');
+                mostrarNotificacion('❌ El nombre ya está en uso', 'error');
+                document.getElementById('producto-nombre').focus();
                 return;
             }
             producto.nombre = nombre;
             producto.precioCosto = precioCosto;
             producto.precioVenta = precioVenta;
             guardarDatos(datos);
-            mostrarNotificacion('Producto actualizado correctamente', 'success');
+            mostrarNotificacion('✅ Producto actualizado correctamente', 'success');
         }
     } else {
         const duplicado = datos.productos.find(p => p.nombre.toLowerCase() === nombre.toLowerCase());
         if (duplicado) {
-            mostrarNotificacion('El nombre ya está en uso', 'error');
+            mostrarNotificacion('❌ El nombre ya está en uso', 'error');
+            document.getElementById('producto-nombre').focus();
             return;
         }
         const nuevoProducto = {
@@ -1959,7 +2295,7 @@ function guardarProducto() {
         };
         datos.productos.push(nuevoProducto);
         guardarDatos(datos);
-        mostrarNotificacion('Producto añadido correctamente', 'success');
+        mostrarNotificacion('✅ Producto añadido correctamente', 'success');
     }
 
     cerrarFormularioProducto();
@@ -1969,7 +2305,10 @@ function guardarProducto() {
 function editarProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);
-    if (!producto) return;
+    if (!producto) {
+        mostrarNotificacion('❌ Producto no encontrado', 'error');
+        return;
+    }
 
     document.getElementById('form-producto-container').style.display = 'block';
     document.getElementById('form-producto-titulo').textContent = 'Editar Producto';
@@ -1977,18 +2316,22 @@ function editarProducto(id) {
     document.getElementById('producto-precioCosto').value = producto.precioCosto;
     document.getElementById('producto-precioVenta').value = producto.precioVenta;
     document.getElementById('producto-editando-id').value = producto.id;
+    document.getElementById('producto-nombre').focus();
 }
 
 function eliminarProducto(id) {
-    if (!confirm('¿Estás seguro de desactivar este producto?')) return;
+    const producto = obtenerProductoPorNombre(cargarDatos(), id);
+    if (!producto) return;
+    
+    if (!confirm(`⚠️ ¿Estás seguro de desactivar el producto "${producto.nombre}"?`)) return;
 
     const datos = cargarDatos();
-    const producto = datos.productos.find(p => p.id === id);
-    if (producto) {
-        producto.activo = false;
+    const productoToUpdate = datos.productos.find(p => p.id === id);
+    if (productoToUpdate) {
+        productoToUpdate.activo = false;
         guardarDatos(datos);
         renderizarProductos();
-        mostrarNotificacion('Producto desactivado correctamente', 'success');
+        mostrarNotificacion(`✅ Producto "${producto.nombre}" desactivado correctamente`, 'success');
     }
 }
 
@@ -1999,12 +2342,12 @@ function reactivarProducto(id) {
         producto.activo = true;
         guardarDatos(datos);
         renderizarProductos();
-        mostrarNotificacion('Producto reactivado correctamente', 'success');
+        mostrarNotificacion(`✅ Producto "${producto.nombre}" reactivado correctamente`, 'success');
     }
 }
 
 // ============================================================
-// 13. UI - DASHBOARD (SIMPLIFICADO)
+// 13. UI - DASHBOARD
 // ============================================================
 
 function renderizarDashboard() {
@@ -2022,7 +2365,7 @@ function renderizarDashboard() {
             <div class="vista-header">
                 <div>
                     <h2>📊 Dashboard Semanal</h2>
-                    <span class="subtitle">Semana del ${formatearFecha(lunes.toISOString().split('T')[0])}</span>
+                    <span class="subtitle">Semana del ${formatearFecha(lunes.toISOString().split('T')[0])} al ${formatearFecha(new Date(lunes.getTime() + 6*24*60*60*1000).toISOString().split('T')[0])}</span>
                 </div>
                 <div class="flex gap-10">
                     <button class="btn btn-secondary btn-sm" onclick="cambiarSemana(-1)">◀</button>
@@ -2037,12 +2380,13 @@ function renderizarDashboard() {
     let totalVentas = 0;
     let totalCoste = 0;
     let totalDiasConDatos = 0;
+    let totalPedidos = 0;
 
     for (let i = 0; i < 7; i++) {
         const fecha = new Date(lunes);
         fecha.setDate(lunes.getDate() + i);
         const fechaStr = fecha.toISOString().split('T')[0];
-        const diaSemanaNombre = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][fecha.getDay()];
+        const diaSemanaNombre = CONSTANTES.DIAS_SEMANA[fecha.getDay()];
         const produccion = datos.produccion[fechaStr];
         const tieneDatos = produccion && produccion.pedidos && produccion.pedidos.length > 0;
 
@@ -2064,6 +2408,7 @@ function renderizarDashboard() {
             totalVentas += ventas;
             totalCoste += coste;
             totalDiasConDatos++;
+            totalPedidos += produccion.pedidos.length;
         }
 
         html += `
@@ -2075,6 +2420,9 @@ function renderizarDashboard() {
                 ${tieneDatos ? `
                     <div style="font-size: 0.8rem; color: var(--text-light);">
                         ${ventas.toFixed(2)} € | ${margen}%
+                    </div>
+                    <div style="font-size: 0.7rem; color: #999;">
+                        ${produccion.pedidos.length} pedidos
                     </div>
                 ` : ''}
             </div>
@@ -2094,6 +2442,10 @@ function renderizarDashboard() {
                     <div class="value">${totalDiasConDatos} / 7</div>
                 </div>
                 <div class="resumen-card">
+                    <div class="label">Total Pedidos</div>
+                    <div class="value primary">${totalPedidos}</div>
+                </div>
+                <div class="resumen-card">
                     <div class="label">Total Unidades</div>
                     <div class="value primary">${totalUnidades}</div>
                 </div>
@@ -2108,6 +2460,15 @@ function renderizarDashboard() {
                 <div class="resumen-card">
                     <div class="label">Margen Semanal</div>
                     <div class="value ${margenSemanal > 0 ? 'success' : 'danger'}">${margenSemanal}%</div>
+                </div>
+                <div class="resumen-card" style="grid-column: span 2;">
+                    <div class="label">Promedio diario</div>
+                    <div class="value" style="font-size: 0.9rem;">
+                        ${totalDiasConDatos > 0 ? 
+                            `${Math.round(totalUnidades / totalDiasConDatos)} uds/día | ${(totalVentas / totalDiasConDatos).toFixed(2)} €/día` : 
+                            'Sin datos'
+                        }
+                    </div>
                 </div>
             </div>
         </div>
@@ -2133,7 +2494,7 @@ function irSemanaActual() {
 }
 
 // ============================================================
-// 14. UI - CONFIGURACIÓN (SIMPLIFICADO)
+// 14. UI - CONFIGURACIÓN (MEJORADA)
 // ============================================================
 
 function renderizarConfiguracion() {
@@ -2161,8 +2522,10 @@ function renderizarConfiguracion() {
                            value="${datos.configuracion.diasCaducidad}" 
                            onchange="guardarConfiguracion()">
                 </div>
-                <button class="btn btn-primary" onclick="guardarConfiguracion()">💾 Guardar Configuración</button>
-                <button class="btn btn-danger" onclick="resetearDatos()" style="margin-left: 10px;">🔄 Resetear Datos</button>
+                <div class="flex gap-10">
+                    <button class="btn btn-primary" onclick="guardarConfiguracion()">💾 Guardar Configuración</button>
+                    <button class="btn btn-danger" onclick="resetearDatos()">🔄 Resetear Datos</button>
+                </div>
             </div>
             <div style="margin-top: 30px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 500px;">
                 <h3>📊 Estadísticas Generales</h3>
@@ -2170,7 +2533,17 @@ function renderizarConfiguracion() {
                     <p><strong>Clientes:</strong> ${datos.clientes.length} (${datos.clientes.filter(c => c.activo).length} activos)</p>
                     <p><strong>Productos:</strong> ${datos.productos.length} (${datos.productos.filter(p => p.activo).length} activos)</p>
                     <p><strong>Días registrados:</strong> ${Object.keys(datos.produccion).length}</p>
-                    <p><strong>Total pedidos:</strong> ${Object.values(datos.produccion).reduce((sum, dia) => sum + dia.pedidos.length, 0)}</p>
+                    <p><strong>Total pedidos:</strong> ${Object.values(datos.produccion).reduce((sum, dia) => sum + (dia.pedidos ? dia.pedidos.length : 0), 0)}</p>
+                    <p><strong>Órdenes de amasado:</strong> ${Object.keys(datos.ordenesAmasado || {}).length}</p>
+                    <p><strong>Almacenamiento usado:</strong> ${Math.round(JSON.stringify(datos).length / 1024)} KB</p>
+                </div>
+            </div>
+            <div style="margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-width: 500px;">
+                <h3>🛠️ Acciones Avanzadas</h3>
+                <div class="flex gap-10" style="flex-wrap: wrap;">
+                    <button class="btn btn-secondary" onclick="exportarDatosCompletos()">📥 Exportar Backup</button>
+                    <button class="btn btn-secondary" onclick="importarDatosCompletos()">📤 Importar Backup</button>
+                    <button class="btn btn-secondary" onclick="restaurarBackup()">🔄 Restaurar Backup</button>
                 </div>
             </div>
         </div>
@@ -2184,23 +2557,37 @@ function guardarConfiguracion() {
     const costeHora = parseFloat(document.getElementById('config-coste-hora').value);
     const diasCaducidad = parseInt(document.getElementById('config-dias-caducidad').value);
 
+    let cambios = false;
+
     if (!isNaN(costeHora) && costeHora >= 0) {
         datos.configuracion.costeManoObraHora = costeHora;
+        cambios = true;
+    } else {
+        mostrarNotificacion('⚠️ Coste de hora inválido', 'warning');
     }
+    
     if (!isNaN(diasCaducidad) && diasCaducidad > 0) {
         datos.configuracion.diasCaducidad = diasCaducidad;
+        cambios = true;
+    } else {
+        mostrarNotificacion('⚠️ Días de caducidad inválidos', 'warning');
     }
 
-    guardarDatos(datos);
-    mostrarNotificacion('Configuración guardada correctamente', 'success');
+    if (cambios) {
+        if (guardarDatos(datos)) {
+            mostrarNotificacion('✅ Configuración guardada correctamente', 'success');
+        }
+    } else {
+        mostrarNotificacion('ℹ️ No se realizaron cambios', 'info');
+    }
 }
 
 function resetearDatos() {
     if (!confirm('⚠️ ¿Estás seguro de resetear todos los datos? Se perderán todos los pedidos registrados.')) return;
-    if (!confirm('¿Estás completamente seguro? Esta acción no se puede deshacer.')) return;
+    if (!confirm('⚠️ ¿Estás completamente seguro? Esta acción no se puede deshacer.')) return;
 
     guardarDatos(DATOS_POR_DEFECTO);
-    mostrarNotificacion('Datos reseteados correctamente', 'success');
+    mostrarNotificacion('✅ Datos reseteados correctamente', 'success');
     renderizarVistaActual();
 }
 
@@ -2266,7 +2653,7 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
     clearTimeout(window.notificationTimeout);
     window.notificationTimeout = setTimeout(() => {
         notification.classList.add('hidden');
-    }, 3000);
+    }, CONSTANTES.TIEMPO_NOTIFICACION);
 }
 
 // ============================================================
@@ -2275,9 +2662,16 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
 
 function inicializarApp() {
     console.log('🍕 Inicializando Quality Pizzafresh App...');
+    console.log(`📅 ${new Date().toLocaleString()}`);
     
-    cargarDatos();
+    // Cargar datos iniciales
+    const datos = cargarDatos();
+    console.log('📊 Datos cargados:');
+    console.log(`  - Clientes: ${datos.clientes.length}`);
+    console.log(`  - Productos: ${datos.productos.length}`);
+    console.log(`  - Días de producción: ${Object.keys(datos.produccion).length}`);
     
+    // Configurar navegación
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
@@ -2288,6 +2682,7 @@ function inicializarApp() {
         });
     });
 
+    // Cerrar menú al hacer clic fuera
     document.addEventListener('click', function(e) {
         const nav = document.getElementById('navbar');
         const navLinks = document.querySelector('.nav-links');
@@ -2296,11 +2691,117 @@ function inicializarApp() {
         }
     });
 
+    // Teclas de acceso rápido
+    document.addEventListener('keydown', function(e) {
+        // Ctrl + 1-6 para cambiar de vista
+        if (e.ctrlKey && e.key >= '1' && e.key <= '6') {
+            e.preventDefault();
+            const vistas = ['produccion', 'dashboard', 'clientes', 'productos', 'amasado', 'configuracion'];
+            const index = parseInt(e.key) - 1;
+            if (index < vistas.length) {
+                cambiarVista(vistas[index]);
+            }
+        }
+        // Escape para cerrar formularios
+        if (e.key === 'Escape') {
+            cerrarFormularioCliente();
+            cerrarFormularioProducto();
+        }
+    });
+
+    // Iniciar con la vista de producción
     cambiarVista('produccion');
 
     console.log('✅ App inicializada correctamente');
-    console.log('👥 Clientes:', cargarDatos().clientes.length);
-    console.log('📦 Productos:', cargarDatos().productos.length);
+    console.log('💡 Atajos: Ctrl+1=Producción, Ctrl+2=Dashboard, Ctrl+3=Clientes, Ctrl+4=Productos, Ctrl+5=Amasado, Ctrl+6=Configuración');
 }
 
+// Inicializar cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', inicializarApp);
+
+// ============================================================
+// 17. TESTS (SOLO EN DESARROLLO)
+// ============================================================
+
+// Función para ejecutar tests
+function ejecutarTests() {
+    console.log('🧪 Ejecutando tests...');
+    
+    // Test 1: Calcular ventas diarias
+    function testCalcularVentasDiarias() {
+        const pedidos = [
+            { productos: { 'Pequeña': 5, 'Mediana': 3 } },
+            { productos: { 'Pequeña': 2 } }
+        ];
+        const resultado = calcularVentasDiarias(pedidos);
+        console.assert(resultado['Pequeña'] === 7, '❌ Error en cálculo de ventas (Pequeña)');
+        console.assert(resultado['Mediana'] === 3, '❌ Error en cálculo de ventas (Mediana)');
+        console.log('✅ testCalcularVentasDiarias: OK');
+    }
+    
+    // Test 2: Calcular inventario final
+    function testCalcularInventarioFinal() {
+        const inicial = { 'Pequeña': 10, 'Mediana': 5 };
+        const ventas = { 'Pequeña': 3, 'Mediana': 2 };
+        const resultado = calcularInventarioFinal(inicial, ventas);
+        console.assert(resultado['Pequeña'] === 7, '❌ Error en inventario final (Pequeña)');
+        console.assert(resultado['Mediana'] === 3, '❌ Error en inventario final (Mediana)');
+        console.log('✅ testCalcularInventarioFinal: OK');
+    }
+    
+    // Test 3: Validación de orden
+    function testValidarOrden() {
+        const ordenValida = {
+            lineas: [
+                { 
+                    tipoBola: 'Pequeña',
+                    peso: 160,
+                    tipoCaja: 'Pequeña',
+                    cajas: 2,
+                    bolasPorCaja: 8,
+                    total: 16,
+                    distribucion: { 'Pequeña': 16 }
+                }
+            ]
+        };
+        const resultado = validarOrdenAmasado(ordenValida);
+        console.assert(resultado.valida === true, '❌ Error en validación de orden válida');
+        
+        const ordenInvalida = {
+            lineas: [
+                { 
+                    tipoBola: 'Pequeña',
+                    cajas: 2,
+                    bolasPorCaja: 8,
+                    total: 16,
+                    distribucion: { 'Pequeña': 10 }
+                }
+            ]
+        };
+        const resultado2 = validarOrdenAmasado(ordenInvalida);
+        console.assert(resultado2.valida === false, '❌ Error en validación de orden inválida');
+        console.log('✅ testValidarOrden: OK');
+    }
+    
+    // Ejecutar tests
+    try {
+        testCalcularVentasDiarias();
+        testCalcularInventarioFinal();
+        testValidarOrden();
+        console.log('🎉 Todos los tests pasaron correctamente');
+    } catch (error) {
+        console.error('❌ Error en tests:', error);
+    }
+}
+
+// Ejecutar tests solo en desarrollo
+if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development') {
+    ejecutarTests();
+}
+
+// Exportar para uso en consola
+console.log('📚 Comandos disponibles:');
+console.log('  - ejecutarTests()  : Ejecuta los tests');
+console.log('  - cargarDatos()    : Carga los datos actuales');
+console.log('  - resetearDatos()  : Resetea los datos por defecto');
+console.log('  - exportarDatosCompletos() : Exporta backup completo');

@@ -82,7 +82,7 @@ function toggleMenu() {
 }
 
 /**
- * Cierra el menú móvil.
+ * Cierra el menú móvil (sin alternar).
  */
 function cerrarMenu() {
     const navLinks = document.querySelector('.nav-links');
@@ -98,6 +98,15 @@ function cerrarMenu() {
  * Se llama una sola vez al inicializar la app.
  */
 function configurarEventos() {
+    // --- 3.0 Botón hamburguesa (menú móvil) ---
+    const hamburger = document.getElementById('nav-hamburger');
+    if (hamburger) {
+        hamburger.addEventListener('click', function(e) {
+            e.preventDefault();
+            toggleMenu();
+        });
+    }
+
     // --- 3.1 Navegación por botones ---
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
@@ -131,7 +140,6 @@ function configurarEventos() {
 
         // Escape → cerrar formularios abiertos
         if (e.key === 'Escape') {
-            // Formularios de clientes y productos
             if (typeof cerrarFormularioCliente === 'function') cerrarFormularioCliente();
             if (typeof cerrarFormularioProducto === 'function') cerrarFormularioProducto();
         }

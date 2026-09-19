@@ -7,7 +7,8 @@
  *   - CRUD de órdenes de amasado
  *   - Distribución de bolas a productos finales
  *   - Clima automático (Guardamar del Segura)
- *   - Aplicación a producción (inventario del día siguiente)
+ *   - Fecha de uso previsto editable (por defecto día siguiente)
+ *   - Aplicación a producción (inventario del día de uso)
  *   - Renderizado completo de la vista
  * 
  * Dependencias: datos.js, utilidades.js
@@ -101,6 +102,20 @@ function generarIdOrdenAmasado(fecha, numero) {
     return `ORD-${fecha.replace(/-/g, '')}-${String(numero).padStart(3, '0')}`;
 }
 
+/**
+ * Calcula la fecha de uso por defecto a partir de la fecha de amasado.
+ * 
+ * Lógica actual: día siguiente.
+ * Lógica futura: si el día siguiente es festivo o no laborable,
+ *                saltar al siguiente día laborable.
+ * 
+ * @param {string} fechaAmasado - Fecha en formato YYYY-MM-DD
+ * @returns {string} Fecha de uso sugerida (YYYY-MM-DD)
+ */
+function calcularFechaUsoPorDefecto(fechaAmasado) {
+    return obtenerFechaSiguiente(fechaAmasado);
+}
+
 // ============================================================
 // 2. ACCESO A ÓRDENES
 // ============================================================
@@ -123,7 +138,7 @@ function obtenerOrdenAmasado(datos, fecha) {
         ordenes[fecha] = {
             id: generarIdOrdenAmasado(fecha, Object.keys(ordenes).length + 1),
             fechaAmasado: fecha,
-            fechaUso: obtenerFechaSiguiente(fecha),
+            fechaUso: calcularFechaUsoPorDefecto(fecha),
             lineas: [],
             totalBolas: 0,
             pesoTotal: 0,
@@ -267,7 +282,6 @@ function renderizarOrdenAmasado(fechaParam) {
             const datos = cargarDatos();
 
             // Prioridad: parámetro > input del DOM > hoy
-            // FIX: usar fechaParam evita que el re-render pierda la fecha seleccionada
             const fecha = fechaParam
                 || document.getElementById('fecha-amasado')?.value
                 || obtenerFechaActual();
@@ -276,6 +290,10 @@ function renderizarOrdenAmasado(fechaParam) {
             const resumen = obtenerResumenOrdenAmasado(orden);
             const validacion = validarOrdenAmasado(orden);
             const clima = obtenerClimaGuardamar();
+
+            // ¿La fecha de uso actual coincide con el cálculo automático?
+            const fechaAuto = calcularFechaUsoPorDefecto(fecha);
+            const fechaUsoEsAuto = orden.fechaUso === fechaAuto;
 
             let todasAsignadas = true;
             let totalSinAsignar = 0;
@@ -314,8 +332,20 @@ function renderizarOrdenAmasado(fechaParam) {
                                 <input type="date" id="fecha-amasado" value="${fecha}" onchange="renderizarOrdenAmasado(this.value)" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                             </div>
                             <div class="form-group">
-                                <label>📅 Uso Previsto</label>
-                                <input type="text" value="${orden.fechaUso} (${formatearFechaLarga(orden.fechaUso)})" readonly style="background: #f0f0f0; font-weight: bold;">
+                                <label>📅 Uso Previsto ${fechaUsoEsAuto ? '<span style="color: #999; font-weight: normal; font-size: 0.8rem;">(auto)</span>' : '<span style="color: var(--primary); font-weight: normal; font-size: 0.8rem;">(manual)</span>'}</label>
+                                <div style="display: flex; gap: 6px; align-items: center;">
+                                    <input type="date" id="fecha-uso" value="${orden.fechaUso}"
+                                           onchange="cambiarFechaUsoAmasado(this.value)"
+                                           style="flex: 1; font-weight: bold;" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                                    ${!orden.aplicadoAProduccion ? `
+                                        <button class="btn btn-secondary btn-sm" onclick="restaurarFechaUsoPorDefecto()" 
+                                                title="Volver al cálculo automático (día siguiente)" 
+                                                style="padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">↺ Auto</button>
+                                    ` : ''}
+                                </div>
+                                <div style="font-size: 0.75rem; color: #999; margin-top: 4px;">
+                                    ${formatearFechaLarga(orden.fechaUso)}
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label>🌡️ Temperatura (${clima.ciudad})</label>
@@ -546,6 +576,55 @@ function renderizarOrdenAmasado(fechaParam) {
 }
 
 // ============================================================
+// 5.1 FECHA DE USO EDITABLE
+// ============================================================
+
+/**
+ * Cambia la fecha de uso previsto de la orden actual y re-renderiza.
+ * Se dispara desde el onchange del input #fecha-uso.
+ * 
+ * @param {string} nuevaFecha - Fecha seleccionada (YYYY-MM-DD)
+ */
+function cambiarFechaUsoAmasado(nuevaFecha) {
+    if (!nuevaFecha) return;
+
+    const datos = cargarDatos();
+    const fechaAmasado = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fechaAmasado);
+
+    if (orden.aplicadoAProduccion) {
+        mostrarNotificacion('⚠️ No se puede cambiar: la orden ya está aplicada', 'warning');
+        return;
+    }
+
+    orden.fechaUso = nuevaFecha;
+    persistirOrdenAmasado(datos, fechaAmasado, orden);
+    renderizarOrdenAmasado(fechaAmasado);
+    mostrarNotificacion(`✅ Fecha de uso actualizada al ${formatearFechaLarga(nuevaFecha)}`, 'success');
+}
+
+/**
+ * Restaura la fecha de uso al cálculo automático por defecto (día siguiente).
+ * Se dispara desde el botón "↺ Auto".
+ */
+function restaurarFechaUsoPorDefecto() {
+    const datos = cargarDatos();
+    const fechaAmasado = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fechaAmasado);
+
+    if (orden.aplicadoAProduccion) {
+        mostrarNotificacion('⚠️ No se puede cambiar: la orden ya está aplicada', 'warning');
+        return;
+    }
+
+    const fechaAuto = calcularFechaUsoPorDefecto(fechaAmasado);
+    orden.fechaUso = fechaAuto;
+    persistirOrdenAmasado(datos, fechaAmasado, orden);
+    renderizarOrdenAmasado(fechaAmasado);
+    mostrarNotificacion(`↺ Fecha de uso restaurada al ${formatearFechaLarga(fechaAuto)}`, 'info');
+}
+
+// ============================================================
 // 6. CRUD DE LÍNEAS DE AMASADO
 // ============================================================
 
@@ -602,7 +681,6 @@ function mostrarModalLineaAmasado() {
     }
 
     const datos = cargarDatos();
-    // FIX: leer la fecha del DOM actual (el input ya tiene el valor correcto)
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
 
@@ -619,7 +697,6 @@ function mostrarModalLineaAmasado() {
     orden.lineas.push(nuevaLinea);
 
     guardarDatos(datos);
-    // FIX: pasar la fecha al re-render
     renderizarOrdenAmasado(fecha);
     mostrarNotificacion('✅ Línea añadida', 'success');
 }
@@ -817,7 +894,7 @@ function guardarOrdenAmasado() {
 }
 
 /**
- * Aplica la orden al inventario de producción del día siguiente.
+ * Aplica la orden al inventario de producción del día de uso.
  */
 function aplicarOrdenAProduccionUI() {
     try {

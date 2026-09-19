@@ -221,18 +221,15 @@ function obtenerClimaGuardamar() {
     const hora = new Date().getHours();
     const mes = new Date().getMonth();
 
-    // Temperatura media mensual (aproximada Guardamar)
     const tempPorMes = [12, 13, 15, 18, 21, 25, 28, 29, 26, 22, 17, 13];
     let temp = tempPorMes[mes] || 20;
 
-    // Variación horaria
     if (hora >= 6 && hora < 9) temp -= 2;
     else if (hora >= 9 && hora < 12) temp += 1;
     else if (hora >= 12 && hora < 15) temp += 3;
     else if (hora >= 15 && hora < 18) temp += 2;
     else if (hora >= 21 || hora < 6) temp -= 3;
 
-    // Humedad (más alta en verano y por la mañana)
     let hum = 60 + Math.floor(Math.random() * 10);
     if (mes >= 6 && mes <= 9) hum += 10;
     if (hora >= 6 && hora < 9) hum += 5;
@@ -253,20 +250,33 @@ function obtenerClimaGuardamar() {
 // 5. RENDERIZADO DE LA VISTA AMASADO
 // ============================================================
 
-function renderizarOrdenAmasado() {
+/**
+ * Renderiza la vista completa de la orden de amasado.
+ * 
+ * @param {string} fechaParam - (Opcional) Fecha a mostrar en formato YYYY-MM-DD.
+ *                              Si no se pasa, se lee del DOM o se usa hoy.
+ *                              IMPORTANTE: se pasa desde el onchange del input
+ *                              para evitar que el re-render pierda la fecha.
+ */
+function renderizarOrdenAmasado(fechaParam) {
     const container = document.getElementById('vista-container');
     container.innerHTML = '<div class="loading">Cargando orden de amasado...</div>';
 
     setTimeout(() => {
         try {
             const datos = cargarDatos();
-            const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+
+            // Prioridad: parámetro > input del DOM > hoy
+            // FIX: usar fechaParam evita que el re-render pierda la fecha seleccionada
+            const fecha = fechaParam
+                || document.getElementById('fecha-amasado')?.value
+                || obtenerFechaActual();
+
             const orden = obtenerOrdenAmasado(datos, fecha);
             const resumen = obtenerResumenOrdenAmasado(orden);
             const validacion = validarOrdenAmasado(orden);
             const clima = obtenerClimaGuardamar();
 
-            // Resumen global de distribución
             let todasAsignadas = true;
             let totalSinAsignar = 0;
             if (Array.isArray(orden.lineas)) {
@@ -301,7 +311,7 @@ function renderizarOrdenAmasado() {
                         <div class="form-row">
                             <div class="form-group">
                                 <label>📅 Fecha Amasado</label>
-                                <input type="date" id="fecha-amasado" value="${fecha}" onchange="renderizarOrdenAmasado()" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                                <input type="date" id="fecha-amasado" value="${fecha}" onchange="renderizarOrdenAmasado(this.value)" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                             </div>
                             <div class="form-group">
                                 <label>📅 Uso Previsto</label>
@@ -592,6 +602,7 @@ function mostrarModalLineaAmasado() {
     }
 
     const datos = cargarDatos();
+    // FIX: leer la fecha del DOM actual (el input ya tiene el valor correcto)
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fecha);
 
@@ -608,7 +619,8 @@ function mostrarModalLineaAmasado() {
     orden.lineas.push(nuevaLinea);
 
     guardarDatos(datos);
-    renderizarOrdenAmasado();
+    // FIX: pasar la fecha al re-render
+    renderizarOrdenAmasado(fecha);
     mostrarNotificacion('✅ Línea añadida', 'success');
 }
 
@@ -640,7 +652,7 @@ const actualizarLineaAmasadoDebounce = debounce(function(index, campo, valor) {
     }
     l.total = (l.cajas || 0) * (l.bolasPorCaja || 0);
     guardarDatos(datos);
-    renderizarOrdenAmasado();
+    renderizarOrdenAmasado(fecha);
 }, 300);
 
 function actualizarLineaAmasado(i, c, v) {
@@ -672,7 +684,7 @@ function eliminarLineaAmasado(index) {
     if (index >= orden.lineas.length) return;
     orden.lineas.splice(index, 1);
     guardarDatos(datos);
-    renderizarOrdenAmasado();
+    renderizarOrdenAmasado(fecha);
     mostrarNotificacion('✅ Línea eliminada', 'success');
 }
 
@@ -684,7 +696,7 @@ function duplicarLineaAmasado(index) {
     const copia = clonarProfundo(orden.lineas[index]);
     orden.lineas.splice(index + 1, 0, copia);
     guardarDatos(datos);
-    renderizarOrdenAmasado();
+    renderizarOrdenAmasado(fecha);
     mostrarNotificacion('✅ Línea duplicada', 'success');
 }
 
@@ -700,7 +712,7 @@ function duplicarTodasLineasAmasado() {
     const originales = clonarProfundo(orden.lineas);
     originales.forEach(l => orden.lineas.push(l));
     guardarDatos(datos);
-    renderizarOrdenAmasado();
+    renderizarOrdenAmasado(fecha);
     mostrarNotificacion('✅ Líneas duplicadas', 'success');
 }
 
@@ -776,7 +788,6 @@ function guardarOrdenAmasado() {
         const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
         const orden = obtenerOrdenAmasado(datos, fecha);
 
-        // Clima automático
         const clima = obtenerClimaGuardamar();
         orden.temperatura = clima.temperatura;
         orden.humedad = clima.humedad;
@@ -798,7 +809,7 @@ function guardarOrdenAmasado() {
 
         persistirOrdenAmasado(datos, fecha, orden);
         mostrarNotificacion(`✅ Orden guardada (${clima.temperatura}°C, ${clima.humedad}%)`, 'success');
-        renderizarOrdenAmasado();
+        renderizarOrdenAmasado(fecha);
     } catch (error) {
         console.error('Error al guardar orden:', error);
         mostrarNotificacion('❌ Error: ' + error.message, 'error');
@@ -848,7 +859,7 @@ function aplicarOrdenAProduccionUI() {
 
         guardarDatos(datos);
         mostrarNotificacion(`✅ Orden aplicada al ${formatearFechaLarga(fechaUso)}`, 'success');
-        renderizarOrdenAmasado();
+        renderizarOrdenAmasado(fecha);
     } catch (error) {
         console.error('Error al aplicar:', error);
         mostrarNotificacion('❌ Error: ' + error.message, 'error');
@@ -876,7 +887,7 @@ function desaplicarOrdenAmasado() {
     delete orden.aplicadoEn;
     guardarDatos(datos);
     mostrarNotificacion('✅ Aplicación deshecha', 'success');
-    renderizarOrdenAmasado();
+    renderizarOrdenAmasado(fecha);
 }
 
 /**
@@ -896,7 +907,7 @@ function eliminarOrdenAmasado() {
     delete datos.ordenesAmasado[fecha];
     guardarDatos(datos);
     mostrarNotificacion('✅ Orden eliminada', 'success');
-    renderizarOrdenAmasado();
+    renderizarOrdenAmasado(fecha);
 }
 
 /**
@@ -908,7 +919,6 @@ function verProduccionDesdeAmasado() {
     const orden = obtenerOrdenAmasado(datos, fecha);
     if (!orden) return;
     cambiarVista('produccion');
-    // Esperar al render y luego fijar la fecha
     setTimeout(() => {
         const input = document.getElementById('fecha-produccion');
         if (input) {

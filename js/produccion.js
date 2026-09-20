@@ -45,7 +45,6 @@ function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
     if (typeof buscarOrdenAmasadoPorFechaUso === 'function') {
         return buscarOrdenAmasadoPorFechaUso(datos, fecha);
     }
-    // Fallback local: buscar directamente
     const ordenes = datos.ordenesAmasado || {};
     for (const k in ordenes) {
         if (ordenes[k].fechaUso === fecha && ordenes[k].aplicadoAProduccion) {
@@ -114,10 +113,6 @@ function inicializarInventario(datos, fecha) {
 // 3. CÁLCULOS DE PRODUCCIÓN
 // ============================================================
 
-/**
- * Suma las cantidades de productos de todos los pedidos del día.
- * Devuelve un objeto { "Pequeña": 10, "Mediana": 5, ... }
- */
 function calcularVentasDiarias(pedidos) {
     const ventas = {};
     if (!Array.isArray(pedidos)) return ventas;
@@ -132,9 +127,6 @@ function calcularVentasDiarias(pedidos) {
     return ventas;
 }
 
-/**
- * Calcula el inventario final = inicial - ventas.
- */
 function calcularInventarioFinal(inv, ventas) {
     const final = {};
     const todos = new Set([...Object.keys(inv || {}), ...Object.keys(ventas || {})]);
@@ -144,9 +136,6 @@ function calcularInventarioFinal(inv, ventas) {
     return final;
 }
 
-/**
- * Calcula el coste total de materia prima del día.
- */
 function calcularCosteMateriaPrima(datos, ventas) {
     let total = 0;
     Object.keys(ventas || {}).forEach(n => {
@@ -155,9 +144,6 @@ function calcularCosteMateriaPrima(datos, ventas) {
     return redondear2(total);
 }
 
-/**
- * Calcula el total de ventas generadas en el día.
- */
 function calcularVentasGeneradas(datos, ventas) {
     let total = 0;
     Object.keys(ventas || {}).forEach(n => {
@@ -166,17 +152,11 @@ function calcularVentasGeneradas(datos, ventas) {
     return redondear2(total);
 }
 
-/**
- * Calcula el margen porcentual.
- */
 function calcularMargen(ventas, coste) {
     if (ventas === 0) return 0;
     return Math.round(((ventas - coste) / ventas) * 10000) / 100;
 }
 
-/**
- * Suma las cantidades de productos de un pedido (total de unidades).
- */
 function calcularTotalPedido(productos) {
     let total = 0;
     if (productos && typeof productos === 'object') {
@@ -193,15 +173,25 @@ function calcularTotalPedido(productos) {
 
 /**
  * Renderiza la vista completa de producción diaria.
+ * 
+ * @param {string} fechaParam - (Opcional) Fecha en formato YYYY-MM-DD.
+ *                              Si no se pasa, se lee del DOM o se usa hoy.
+ *                              IMPORTANTE: se pasa desde los onchange de los
+ *                              inputs y desde las funciones de navegación
+ *                              para evitar que el re-render pierda la fecha.
  */
-function renderizarProduccion() {
+function renderizarProduccion(fechaParam) {
     const container = document.getElementById('vista-container');
     container.innerHTML = '<div class="loading">Cargando producción...</div>';
 
     setTimeout(() => {
         try {
             const datos = cargarDatos();
-            const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+
+            // Prioridad: parámetro > input del DOM > hoy
+            const fecha = fechaParam
+                || document.getElementById('fecha-produccion')?.value
+                || obtenerFechaActual();
 
             // Crear el día si no existe
             if (!datos.produccion[fecha]) {
@@ -448,72 +438,84 @@ function renderizarProduccion() {
 }
 
 // ============================================================
-// 5. NAVEGACIÓN ENTRE DÍAS
+// 5. NAVEGACIÓN ENTRE DÍAS (CORREGIDA)
 // ============================================================
 
 /**
- * Cambia la fecha de producción y re-renderiza.
+ * Cambia la fecha de producción y re-renderiza con la nueva fecha.
+ * Se dispara desde el onchange del input #fecha-produccion.
+ * 
+ * @param {string} fecha - Fecha seleccionada (YYYY-MM-DD)
  */
 function cambiarFechaProduccion(fecha) {
-    renderizarProduccion();
+    if (!fecha) return;
+    renderizarProduccion(fecha);
 }
 
+/**
+ * Retrocede un día.
+ */
 function irDiaAnterior() {
     const input = document.getElementById('fecha-produccion');
     if (!input) return;
     const d = new Date(input.value);
     d.setDate(d.getDate() - 1);
-    input.value = d.toISOString().split('T')[0];
-    renderizarProduccion();
+    const nuevaFecha = d.toISOString().split('T')[0];
+    renderizarProduccion(nuevaFecha);
 }
 
+/**
+ * Avanza un día.
+ */
 function irDiaSiguiente() {
     const input = document.getElementById('fecha-produccion');
     if (!input) return;
     const d = new Date(input.value);
     d.setDate(d.getDate() + 1);
-    input.value = d.toISOString().split('T')[0];
-    renderizarProduccion();
+    const nuevaFecha = d.toISOString().split('T')[0];
+    renderizarProduccion(nuevaFecha);
 }
 
+/**
+ * Vuelve al día actual.
+ */
 function irHoy() {
-    const input = document.getElementById('fecha-produccion');
-    if (!input) return;
-    input.value = obtenerFechaActual();
-    renderizarProduccion();
+    renderizarProduccion(obtenerFechaActual());
 }
 
 /**
  * Va a la fecha de uso de la orden de amasado activa.
- * Si no hay orden, muestra aviso.
+ * Busca la orden más reciente que tenga una fecha de uso futura.
  */
 function irDiaAmasado() {
-    const fechaAmasado = document.getElementById('fecha-amasado')?.value;
-    if (!fechaAmasado) {
-        mostrarNotificacion('⚠️ Primero selecciona una fecha de amasado', 'warning');
-        return;
-    }
     const datos = cargarDatos();
-    const orden = datos.ordenesAmasado?.[fechaAmasado];
-    if (!orden || !orden.fechaUso) {
-        mostrarNotificacion('⚠️ No hay orden de amasado para esa fecha', 'warning');
+    const ordenes = datos.ordenesAmasado || {};
+    const hoy = obtenerFechaActual();
+
+    // Buscar la orden aplicada cuya fechaUso sea >= hoy, la más próxima
+    let ordenObjetivo = null;
+    Object.keys(ordenes).forEach(fechaOrden => {
+        const orden = ordenes[fechaOrden];
+        if (orden.aplicadoAProduccion && orden.fechaUso >= hoy) {
+            if (!ordenObjetivo || orden.fechaUso < ordenObjetivo.fechaUso) {
+                ordenObjetivo = orden;
+            }
+        }
+    });
+
+    if (!ordenObjetivo) {
+        mostrarNotificacion('⚠️ No hay órdenes de amasado aplicadas recientes', 'warning');
         return;
     }
-    const input = document.getElementById('fecha-produccion');
-    if (input) {
-        input.value = orden.fechaUso;
-        renderizarProduccion();
-        mostrarNotificacion(`📅 Mostrando producción del ${formatearFechaLarga(orden.fechaUso)}`, 'info');
-    }
+
+    renderizarProduccion(ordenObjetivo.fechaUso);
+    mostrarNotificacion(`📅 Mostrando producción del ${formatearFechaLarga(ordenObjetivo.fechaUso)}`, 'info');
 }
 
 // ============================================================
 // 6. CRUD DE PEDIDOS
 // ============================================================
 
-/**
- * Añade una fila de pedido vacía al día actual.
- */
 function añadirFilaPedido() {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -535,13 +537,10 @@ function añadirFilaPedido() {
     });
 
     guardarDatos(datos);
-    renderizarProduccion();
+    renderizarProduccion(fecha);
     mostrarNotificacion('✅ Fila añadida', 'success');
 }
 
-/**
- * Duplica la fila del índice dado, insertándola justo después.
- */
 function duplicarFilaPedido(index) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -562,13 +561,10 @@ function duplicarFilaPedido(index) {
 
     produccion.pedidos.splice(index + 1, 0, copia);
     guardarDatos(datos);
-    renderizarProduccion();
+    renderizarProduccion(fecha);
     mostrarNotificacion('✅ Fila duplicada', 'success');
 }
 
-/**
- * Elimina la fila del índice dado.
- */
 function eliminarFilaPedido(index) {
     if (!confirm('⚠️ ¿Eliminar esta fila?')) return;
 
@@ -579,14 +575,11 @@ function eliminarFilaPedido(index) {
     if (index >= 0 && index < produccion.pedidos.length) {
         produccion.pedidos.splice(index, 1);
         guardarDatos(datos);
-        renderizarProduccion();
+        renderizarProduccion(fecha);
         mostrarNotificacion('✅ Fila eliminada', 'success');
     }
 }
 
-/**
- * Elimina todos los pedidos marcados como finalizados.
- */
 function limpiarPedidosFinalizados() {
     if (!confirm('⚠️ ¿Eliminar todos los pedidos finalizados?')) return;
 
@@ -604,14 +597,10 @@ function limpiarPedidosFinalizados() {
     }
 
     guardarDatos(datos);
-    renderizarProduccion();
+    renderizarProduccion(fecha);
     mostrarNotificacion(`✅ ${eliminados} pedidos finalizados eliminados`, 'success');
 }
 
-/**
- * Actualiza un pedido desde los inputs de la fila (cliente, cantidades, finalizado).
- * Se llama al cambiar cualquier input de la fila.
- */
 function actualizarPedido(index) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -622,13 +611,11 @@ function actualizarPedido(index) {
     const fila = document.querySelector(`#tabla-pedidos tbody tr:nth-child(${index + 1})`);
     if (!fila) return;
 
-    // Cliente
     const select = fila.querySelector('.cliente-select');
     if (select) {
         produccion.pedidos[index].clienteId = parseInt(select.value) || null;
     }
 
-    // Cantidades
     const inputs = fila.querySelectorAll('.cantidad-input');
     inputs.forEach(input => {
         const producto = input.dataset.producto;
@@ -639,35 +626,28 @@ function actualizarPedido(index) {
         produccion.pedidos[index].productos[producto] = valor;
     });
 
-    // Finalizado
     const checkbox = fila.querySelector('.finalizado-check');
     if (checkbox) {
         produccion.pedidos[index].finalizado = checkbox.checked;
     }
 
     guardarDatos(datos);
-    renderizarProduccion();
+    renderizarProduccion(fecha);
 }
 
 // ============================================================
 // 7. ACTUALIZACIONES DE CAMPOS DEL DÍA
 // ============================================================
 
-/**
- * Guarda las horas trabajadas del día.
- */
 function guardarHorasTrabajadas(valor) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
     produccion.horasTrabajadas = aDecimal(valor);
     guardarDatos(datos);
-    renderizarProduccion();
+    renderizarProduccion(fecha);
 }
 
-/**
- * Actualiza el inventario inicial de un producto.
- */
 function actualizarInventarioInicial(producto, valor) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -676,5 +656,5 @@ function actualizarInventarioInicial(producto, valor) {
     if (!produccion.inventarioInicial) produccion.inventarioInicial = {};
     produccion.inventarioInicial[producto] = aEntero(valor);
     guardarDatos(datos);
-    renderizarProduccion();
+    renderizarProduccion(fecha);
 }

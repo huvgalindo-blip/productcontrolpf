@@ -18,14 +18,14 @@
 
 /**
  * Cambia a la vista indicada: marca el botón activo y renderiza el contenido.
- * Vistas válidas: produccion | dashboard | amasado | clientes | productos | configuracion
+ * Vistas válidas: produccion | dashboard | amasado | calculadoraMasa | clientes | productos | configuracion
  * 
  * @param {string} vista 
  */
 function cambiarVista(vista) {
     console.log('🔄 Cambiando a vista:', vista);
 
-    // Actualizar botón activo
+    // Actualizar botón activo (solo si existe un botón con esa data-vista)
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.vista === vista);
     });
@@ -40,6 +40,9 @@ function cambiarVista(vista) {
             break;
         case 'amasado':
             renderizarOrdenAmasado();
+            break;
+        case 'calculadoraMasa':
+            renderizarCalculadoraMasa();
             break;
         case 'clientes':
             renderizarClientes();

@@ -9,6 +9,7 @@
  *   - Clima automático (Guardamar del Segura)
  *   - Fecha de uso previsto editable (por defecto día siguiente)
  *   - Aplicación a producción (inventario del día de uso)
+ *   - Acceso a la calculadora de masa
  *   - Renderizado completo de la vista
  * 
  * Dependencias: datos.js, utilidades.js
@@ -316,7 +317,8 @@ function renderizarOrdenAmasado(fechaParam) {
                             <h2>🔄 Orden de Amasado</h2>
                             <span class="subtitle">Producción de masa para el día siguiente</span>
                         </div>
-                        <div>
+                        <div class="flex gap-10" style="align-items: center;">
+                            <button class="btn btn-primary btn-sm" onclick="cambiarVista('calculadoraMasa')" title="Abrir calculadora de masa">🧮 Calculadora</button>
                             <span class="subtitle" style="font-weight: bold; color: ${orden.aplicadoAProduccion ? 'var(--success)' : 'var(--warning)'};">
                                 ${orden.aplicadoAProduccion ? '✅ Aplicado a producción' : '⏳ Pendiente de aplicar'}
                             </span>

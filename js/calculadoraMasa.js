@@ -1,10 +1,11 @@
+
 /**
  * ============================================================
  * MÓDULO: CALCULADORA DE MASA
  * ============================================================
  * Responsabilidades:
  *   - Calculadora dinámica de recetas de masa y biga
- *   - Harinas e ingredientes editables
+ *   - Harinas, ingredientes y biga editables
  *   - Cálculo en tiempo real
  *   - Guardar/cargar/duplicar/eliminar recetas
  *   - Impresión y exportación CSV
@@ -13,7 +14,7 @@
  * 
  * Estructura en localStorage:
  *   - datos.recetasMasa: {}  (diccionario por id)
- *   - datos.recetaActiva: "id-receta"
+ *   - datos.recetaActivaMasa: "id-receta"
  * ============================================================
  */
 
@@ -24,16 +25,25 @@
 const UNIDADES_VALIDAS = ['kg', 'L', 'g'];
 const CLAVE_RECETA_ACTIVA = 'recetaActivaMasa';
 
-// Estado en memoria (no persiste) para el filtro/edición actual
 let recetaEnEdicion = null;
 
 // ============================================================
-// 2. RECETA POR DEFECTO (basada en el Excel)
+// 2. RECETAS POR DEFECTO
 // ============================================================
 
 /**
- * Devuelve la receta estándar del Excel (versión verano).
+ * Estructura por defecto de la biga (formato array editable).
+ * Sin panatura.
  */
+function bigaPorDefecto(estacion = 'verano') {
+    const agua = estacion === 'invierno' ? 56 : 51;
+    return [
+        { id: 'b1', nombre: 'Harina', porcentaje: 100, unidad: 'kg' },
+        { id: 'b2', nombre: 'Agua', porcentaje: agua, unidad: 'L' },
+        { id: 'b3', nombre: 'Levadura', porcentaje: 0.06, unidad: 'g' }
+    ];
+}
+
 function crearRecetaPorDefecto(nombre = 'Receta Estándar Verano') {
     return {
         id: 'receta-default-verano',
@@ -56,30 +66,59 @@ function crearRecetaPorDefecto(nombre = 'Receta Estándar Verano') {
             { id: 'i7', nombre: 'Malta', porcentaje: 0.5, unidad: 'g' },
             { id: 'i8', nombre: 'Vinagre', porcentaje: 0.5, unidad: 'g' }
         ],
-        biga: {
-            harina: 100,
-            agua: 51,
-            levadura: 0.06,
-            panatura: 0
-        },
+        biga: bigaPorDefecto('verano'),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
 }
 
-/**
- * Devuelve la receta estándar en versión invierno.
- */
 function crearRecetaInvierno() {
     const receta = crearRecetaPorDefecto('Receta Estándar Invierno');
     receta.id = 'receta-default-invierno';
     receta.estacion = 'invierno';
     receta.descripcion = 'Masa base con biga — receta de invierno';
-    // Ajustar % de agua de la biga (56% en invierno)
-    receta.biga.agua = 56;
-    // Ajustar agua de la masa principal
+    receta.biga = bigaPorDefecto('invierno');
     const agua = receta.ingredientes.find(i => i.nombre.toLowerCase() === 'agua');
     if (agua) agua.porcentaje = 56;
+    return receta;
+}
+
+// ============================================================
+// 2.1 MIGRACIÓN DE FORMATOS ANTIGUOS
+// ============================================================
+
+/**
+ * Asegura que la biga esté en formato array y sin panatura.
+ * Si viene en formato objeto antiguo {harina, agua, levadura, panatura},
+ * lo convierte al nuevo formato eliminando panatura.
+ */
+function migrarBigaSiNecesario(receta) {
+    if (!receta.biga) {
+        receta.biga = bigaPorDefecto(receta.estacion || 'verano');
+        return receta;
+    }
+
+    // Si es formato objeto antiguo, convertir a array
+    if (!Array.isArray(receta.biga)) {
+        const obj = receta.biga;
+        receta.biga = [
+            { id: 'b1', nombre: 'Harina', porcentaje: obj.harina ?? 100, unidad: 'kg' },
+            { id: 'b2', nombre: 'Agua', porcentaje: obj.agua ?? 51, unidad: 'L' },
+            { id: 'b3', nombre: 'Levadura', porcentaje: obj.levadura ?? 0.06, unidad: 'g' }
+        ];
+        return receta;
+    }
+
+    // Si ya es array, eliminar panatura si existe
+    receta.biga = receta.biga.filter(b =>
+        !b.nombre.toLowerCase().includes('panatura')
+    );
+
+    // Si después de filtrar quedara vacía, restaurar por defecto
+    if (receta.biga.length === 0) {
+        receta.biga = bigaPorDefecto(receta.estacion || 'verano');
+    }
+
     return receta;
 }
 
@@ -87,10 +126,6 @@ function crearRecetaInvierno() {
 // 3. PERSISTENCIA DE RECETAS
 // ============================================================
 
-/**
- * Obtiene el diccionario de recetas guardadas.
- * Si no existe, inicializa con las 2 recetas por defecto.
- */
 function obtenerRecetasMasa(datos) {
     if (!datos.recetasMasa || typeof datos.recetasMasa !== 'object') {
         datos.recetasMasa = {};
@@ -103,29 +138,21 @@ function obtenerRecetasMasa(datos) {
     return datos.recetasMasa;
 }
 
-/**
- * Obtiene la receta activa o la primera disponible.
- */
 function obtenerRecetaActiva() {
     const datos = cargarDatos();
     const recetas = obtenerRecetasMasa(datos);
 
-    // Prioridad: receta activa guardada > primera del diccionario
     let idActiva = datos[CLAVE_RECETA_ACTIVA];
     if (!idActiva || !recetas[idActiva]) {
         idActiva = Object.keys(recetas)[0];
     }
 
-    return {
-        datos,
-        receta: JSON.parse(JSON.stringify(recetas[idActiva])),
-        idActiva
-    };
+    let receta = JSON.parse(JSON.stringify(recetas[idActiva]));
+    receta = migrarBigaSiNecesario(receta);
+
+    return { datos, receta, idActiva };
 }
 
-/**
- * Guarda la receta actual como activa.
- */
 function persistirRecetaActiva(datos, receta) {
     if (!datos.recetasMasa) datos.recetasMasa = {};
     receta.updatedAt = new Date().toISOString();
@@ -139,16 +166,7 @@ function persistirRecetaActiva(datos, receta) {
 // ============================================================
 
 /**
- * Calcula las cantidades finales de una receta dado los kilos de harina.
- * 
- * Regla:
- *   - Harinas: se reparten los kilos según porcentaje (suma = 100%)
- *   - Ingredientes: porcentaje sobre harina total
- *     · unidad kg → kilos = kilosHarina × (% / 100)
- *     · unidad L  → litros = kilosHarina × (% / 100)
- *     · unidad g  → gramos = kilosHarina × (% / 100) × 1000
- *   - Biga: se calcula sobre los kg de biga que pide la receta principal
- *     y se reparte según los porcentajes de biga
+ * Calcula las cantidades finales de una receta.
  */
 function calcularReceta(receta) {
     const kgHarina = parseFloat(receta.kilosHarina) || 0;
@@ -166,53 +184,44 @@ function calcularReceta(receta) {
     const ingredientesCalculados = receta.ingredientes.map(i => {
         const porcentaje = parseFloat(i.porcentaje) || 0;
         const cantidadBase = kgHarina * porcentaje / 100;
-
-        let cantidad;
-        switch (i.unidad) {
-            case 'kg':
-                cantidad = redondear2(cantidadBase);
-                break;
-            case 'L':
-                cantidad = redondear2(cantidadBase);
-                break;
-            case 'g':
-                cantidad = Math.round(cantidadBase * 1000);
-                break;
-            default:
-                cantidad = redondear2(cantidadBase);
-        }
-
-        return { ...i, cantidad };
+        return { ...i, cantidad: convertirCantidad(cantidadBase, i.unidad) };
     });
 
     // --- Biga ---
-    // La cantidad de biga viene marcada por el ingrediente "Biga" de la receta principal
     const ingBiga = ingredientesCalculados.find(i =>
         i.nombre.toLowerCase() === 'biga'
     );
     const kgBiga = ingBiga ? ingBiga.cantidad : 0;
 
-    const bigaCalculada = {
-        harina: redondear2(kgBiga * (receta.biga.harina / 100)),
-        agua: redondear2(kgBiga * (receta.biga.agua / 100)),
-        levadura: Math.round(kgBiga * (receta.biga.levadura / 100) * 1000),
-        panatura: Math.round(kgBiga * (receta.biga.panatura / 100) * 1000)
-    };
+    const ingHarinaBiga = receta.biga.find(i =>
+        i.nombre.toLowerCase().includes('harina')
+    );
+    const porcentajeHarinaBiga = ingHarinaBiga ? (parseFloat(ingHarinaBiga.porcentaje) || 0) : 100;
+    const kgHarinaBiga = redondear2(kgBiga * porcentajeHarinaBiga / 100);
+
+    const bigaCalculada = receta.biga.map(i => {
+        const porcentaje = parseFloat(i.porcentaje) || 0;
+        const cantidadBase = kgHarinaBiga * porcentaje / 100;
+        return { ...i, cantidad: convertirCantidad(cantidadBase, i.unidad) };
+    });
 
     return {
         harinas: harinasCalculadas,
         ingredientes: ingredientesCalculados,
         biga: bigaCalculada,
         kgHarina,
+        kgBiga,
         totalHarinas: redondear2(
             harinasCalculadas.reduce((sum, h) => sum + h.cantidad, 0)
         )
     };
 }
 
-/**
- * Formatea una cantidad según su unidad para mostrarla.
- */
+function convertirCantidad(valorBase, unidad) {
+    if (unidad === 'g') return Math.round(valorBase * 1000);
+    return redondear2(valorBase);
+}
+
 function formatearCantidad(cantidad, unidad) {
     if (unidad === 'g') return `${cantidad} g`;
     if (unidad === 'kg') return `${cantidad.toFixed(2)} kg`;
@@ -224,20 +233,16 @@ function formatearCantidad(cantidad, unidad) {
 // 5. RENDERIZADO DE LA VISTA
 // ============================================================
 
-/**
- * Renderiza la vista completa de la calculadora.
- */
 function renderizarCalculadoraMasa() {
     const container = document.getElementById('vista-container');
     container.innerHTML = '<div class="loading">Cargando calculadora...</div>';
 
     setTimeout(() => {
         try {
-            const { datos, receta, idActiva } = obtenerRecetaActiva();
+            const { datos, receta } = obtenerRecetaActiva();
             recetaEnEdicion = receta;
 
             const calculo = calcularReceta(receta);
-            const recetas = obtenerRecetasMasa(datos);
 
             const sumaPorcentajesHarinas = receta.harinas.reduce(
                 (s, h) => s + (parseFloat(h.porcentaje) || 0), 0
@@ -398,43 +403,61 @@ function renderizarCalculadoraMasa() {
                         </div>
                     </div>
 
-                    <!-- BIGA -->
+                    <!-- BIGA EDITABLE -->
                     <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
                         <div class="flex-between mb-10">
-                            <h3>🫓 Biga (calculada sobre ${kgBigaTooltip(calculo)} kg de biga)</h3>
-                            <button class="btn btn-secondary btn-sm" onclick="abrirModalBiga()">⚙️ Ajustar %</button>
+                            <h3>🫓 Biga (calculada sobre ${calculo.kgBiga.toFixed(2)} kg de biga)</h3>
+                            <button class="btn btn-primary btn-sm" onclick="añadirIngredienteBiga()">➕ Añadir</button>
                         </div>
-                        <table style="width: 100%; max-width: 600px;">
+                        <table style="width: 100%;">
                             <thead>
                                 <tr>
-                                    <th style="text-align: left;">Ingrediente</th>
+                                    <th style="text-align: left;">Nombre</th>
                                     <th>%</th>
+                                    <th>U.</th>
                                     <th style="text-align: right;">Cantidad</th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr>
-                                    <td>Harina</td>
-                                    <td>${receta.biga.harina}%</td>
-                                    <td style="text-align: right; font-weight: bold; color: var(--primary);">${calculo.biga.harina.toFixed(2)} kg</td>
-                                </tr>
-                                <tr>
-                                    <td>Agua</td>
-                                    <td>${receta.biga.agua}%</td>
-                                    <td style="text-align: right; font-weight: bold; color: var(--primary);">${calculo.biga.agua.toFixed(2)} L</td>
-                                </tr>
-                                <tr>
-                                    <td>Levadura</td>
-                                    <td>${receta.biga.levadura}%</td>
-                                    <td style="text-align: right; font-weight: bold; color: var(--primary);">${calculo.biga.levadura} g</td>
-                                </tr>
-                                <tr>
-                                    <td>Panatura</td>
-                                    <td>${receta.biga.panatura}%</td>
-                                    <td style="text-align: right; font-weight: bold; color: var(--primary);">${calculo.biga.panatura} g</td>
-                                </tr>
+                                ${calculo.biga.map((b, idx) => `
+                                    <tr>
+                                        <td>
+                                            <input type="text" value="${escaparHTML(b.nombre)}"
+                                                   style="width: 100%; padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px;"
+                                                   onchange="actualizarBiga(${idx}, 'nombre', this.value)">
+                                        </td>
+                                        <td>
+                                            <input type="number" min="0" step="0.01"
+                                                   value="${b.porcentaje}"
+                                                   style="width: 70px; text-align: center; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
+                                                   onchange="actualizarBiga(${idx}, 'porcentaje', this.value)">
+                                        </td>
+                                        <td>
+                                            <select onchange="actualizarBiga(${idx}, 'unidad', this.value)"
+                                                    style="padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+                                                ${UNIDADES_VALIDAS.map(u => `
+                                                    <option value="${u}" ${b.unidad === u ? 'selected' : ''}>${u}</option>
+                                                `).join('')}
+                                            </select>
+                                        </td>
+                                        <td style="text-align: right; font-weight: bold; color: var(--primary); white-space: nowrap;">
+                                            ${formatearCantidad(b.cantidad, b.unidad)}
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-danger btn-sm"
+                                                    onclick="eliminarBiga(${idx})"
+                                                    ${receta.biga.length <= 1 ? 'disabled' : ''}
+                                                    title="${receta.biga.length <= 1 ? 'Debe haber al menos 1' : 'Eliminar'}">🗑️</button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
                             </tbody>
                         </table>
+                        <div style="margin-top: 10px; font-size: 0.8rem; color: #999;">
+                            💡 Los porcentajes de la biga se calculan sobre la harina de la biga.
+                            El ingrediente "Harina" marca la base (normalmente 100%).
+                        </div>
                     </div>
 
                 </div>
@@ -456,16 +479,8 @@ function renderizarCalculadoraMasa() {
     }, 50);
 }
 
-/**
- * Helper para el título de biga.
- */
-function kgBigaTooltip(calculo) {
-    const ing = calculo.ingredientes.find(i => i.nombre.toLowerCase() === 'biga');
-    return ing ? ing.cantidad.toFixed(2) : '0.00';
-}
-
 // ============================================================
-// 6. ACTUALIZACIONES DE LA RECETA (recalcula y re-renderiza)
+// 6. ACTUALIZACIONES DE LA RECETA
 // ============================================================
 
 function actualizarNombreReceta(valor) {
@@ -481,16 +496,17 @@ function actualizarKilosHarina(valor) {
 
 function actualizarEstacion(valor) {
     recetaEnEdicion.estacion = valor;
-    // Ajustar automáticamente el % de agua
     const aguaIng = recetaEnEdicion.ingredientes.find(
         i => i.nombre.toLowerCase() === 'agua'
     );
     if (valor === 'verano') {
         if (aguaIng) aguaIng.porcentaje = 54;
-        recetaEnEdicion.biga.agua = 51;
+        const aguaBiga = recetaEnEdicion.biga.find(b => b.nombre.toLowerCase() === 'agua');
+        if (aguaBiga) aguaBiga.porcentaje = 51;
     } else if (valor === 'invierno') {
         if (aguaIng) aguaIng.porcentaje = 56;
-        recetaEnEdicion.biga.agua = 56;
+        const aguaBiga = recetaEnEdicion.biga.find(b => b.nombre.toLowerCase() === 'agua');
+        if (aguaBiga) aguaBiga.porcentaje = 56;
     }
     persistirRecetaActiva(cargarDatos(), recetaEnEdicion);
     renderizarCalculadoraMasa();
@@ -520,10 +536,22 @@ function actualizarIngrediente(idx, campo, valor) {
     renderizarCalculadoraMasa();
 }
 
+function actualizarBiga(idx, campo, valor) {
+    if (!recetaEnEdicion.biga[idx]) return;
+    if (campo === 'porcentaje') {
+        recetaEnEdicion.biga[idx].porcentaje = parseFloat(valor) || 0;
+    } else if (campo === 'unidad') {
+        recetaEnEdicion.biga[idx].unidad = valor;
+    } else {
+        recetaEnEdicion.biga[idx].nombre = valor;
+    }
+    persistirRecetaActiva(cargarDatos(), recetaEnEdicion);
+    renderizarCalculadoraMasa();
+}
+
 function añadirHarina() {
-    const id = 'h' + Date.now();
     recetaEnEdicion.harinas.push({
-        id,
+        id: 'h' + Date.now(),
         nombre: 'Nueva harina',
         porcentaje: 0
     });
@@ -543,9 +571,8 @@ function eliminarHarina(idx) {
 }
 
 function añadirIngrediente() {
-    const id = 'i' + Date.now();
     recetaEnEdicion.ingredientes.push({
-        id,
+        id: 'i' + Date.now(),
         nombre: 'Nuevo ingrediente',
         porcentaje: 0,
         unidad: 'g'
@@ -561,39 +588,32 @@ function eliminarIngrediente(idx) {
     renderizarCalculadoraMasa();
 }
 
-// ============================================================
-// 7. MODAL DE AJUSTE DE BIGA
-// ============================================================
-
-function abrirModalBiga() {
-    const b = recetaEnEdicion.biga;
-    const harina = prompt('Porcentaje de HARINA en la biga (sobre harina de biga):', b.harina);
-    if (harina === null) return;
-    const agua = prompt('Porcentaje de AGUA en la biga:', b.agua);
-    if (agua === null) return;
-    const levadura = prompt('Porcentaje de LEVADURA en la biga:', b.levadura);
-    if (levadura === null) return;
-    const panatura = prompt('Porcentaje de PANATURA en la biga:', b.panatura);
-    if (panatura === null) return;
-
-    recetaEnEdicion.biga = {
-        harina: parseFloat(harina) || 0,
-        agua: parseFloat(agua) || 0,
-        levadura: parseFloat(levadura) || 0,
-        panatura: parseFloat(panatura) || 0
-    };
+function añadirIngredienteBiga() {
+    recetaEnEdicion.biga.push({
+        id: 'b' + Date.now(),
+        nombre: 'Nuevo ingrediente',
+        porcentaje: 0,
+        unidad: 'g'
+    });
     persistirRecetaActiva(cargarDatos(), recetaEnEdicion);
     renderizarCalculadoraMasa();
-    mostrarNotificacion('✅ Biga actualizada', 'success');
+}
+
+function eliminarBiga(idx) {
+    if (recetaEnEdicion.biga.length <= 1) {
+        mostrarNotificacion('⚠️ Debe haber al menos 1 ingrediente en la biga', 'warning');
+        return;
+    }
+    if (!confirm(`¿Eliminar "${recetaEnEdicion.biga[idx].nombre}" de la biga?`)) return;
+    recetaEnEdicion.biga.splice(idx, 1);
+    persistirRecetaActiva(cargarDatos(), recetaEnEdicion);
+    renderizarCalculadoraMasa();
 }
 
 // ============================================================
-// 8. GESTIÓN DE RECETAS (guardar, cargar, duplicar, eliminar)
+// 7. GESTIÓN DE RECETAS
 // ============================================================
 
-/**
- * Guarda la receta actual. Si el nombre ya existe, la sobrescribe.
- */
 function guardarRecetaActual() {
     const datos = cargarDatos();
     const nombre = recetaEnEdicion.nombre.trim();
@@ -601,15 +621,10 @@ function guardarRecetaActual() {
         mostrarNotificacion('⚠️ Pon un nombre a la receta', 'warning');
         return;
     }
-
-    // Guardar en el diccionario (con la misma id, sobrescribe)
     persistirRecetaActiva(datos, recetaEnEdicion);
     mostrarNotificacion(`✅ Receta "${nombre}" guardada`, 'success');
 }
 
-/**
- * Abre modal con la lista de recetas guardadas.
- */
 function abrirModalRecetas() {
     const datos = cargarDatos();
     const recetas = obtenerRecetasMasa(datos);
@@ -630,17 +645,16 @@ function abrirModalRecetas() {
     const idx = parseInt(sel) - 1;
 
     if (idx >= 0 && idx < ids.length) {
-        // Cargar receta
         const idSeleccionada = ids[idx];
-        recetaEnEdicion = JSON.parse(JSON.stringify(recetas[idSeleccionada]));
+        let recetaCargada = JSON.parse(JSON.stringify(recetas[idSeleccionada]));
+        recetaCargada = migrarBigaSiNecesario(recetaCargada);
+        recetaEnEdicion = recetaCargada;
         persistirRecetaActiva(datos, recetaEnEdicion);
         renderizarCalculadoraMasa();
         mostrarNotificacion(`✅ Receta "${recetaEnEdicion.nombre}" cargada`, 'success');
     } else if (idx === ids.length) {
-        // Duplicar
         duplicarRecetaActual();
     } else if (idx === ids.length + 1) {
-        // Eliminar
         eliminarRecetaPorPrompt(ids, recetas);
     }
 }
@@ -687,13 +701,11 @@ function eliminarRecetaPorPrompt(ids, recetas) {
     const datos = cargarDatos();
     delete datos.recetasMasa[idEliminar];
 
-    // Si era la activa, cambiar a la primera disponible
     if (datos[CLAVE_RECETA_ACTIVA] === idEliminar) {
         datos[CLAVE_RECETA_ACTIVA] = Object.keys(datos.recetasMasa)[0];
     }
     guardarDatos(datos);
 
-    // Recargar receta activa
     const { receta } = obtenerRecetaActiva();
     recetaEnEdicion = receta;
     renderizarCalculadoraMasa();
@@ -701,7 +713,7 @@ function eliminarRecetaPorPrompt(ids, recetas) {
 }
 
 // ============================================================
-// 9. IMPRIMIR Y EXPORTAR CSV
+// 8. IMPRIMIR Y EXPORTAR CSV
 // ============================================================
 
 function imprimirReceta() {
@@ -759,10 +771,9 @@ function imprimirReceta() {
             <table>
                 <thead><tr><th>Ingrediente</th><th>%</th><th class="cantidad">Cantidad</th></tr></thead>
                 <tbody>
-                    <tr><td>Harina</td><td>${receta.biga.harina}%</td><td class="cantidad">${calculo.biga.harina.toFixed(2)} kg</td></tr>
-                    <tr><td>Agua</td><td>${receta.biga.agua}%</td><td class="cantidad">${calculo.biga.agua.toFixed(2)} L</td></tr>
-                    <tr><td>Levadura</td><td>${receta.biga.levadura}%</td><td class="cantidad">${calculo.biga.levadura} g</td></tr>
-                    <tr><td>Panatura</td><td>${receta.biga.panatura}%</td><td class="cantidad">${calculo.biga.panatura} g</td></tr>
+                    ${calculo.biga.map(b => `
+                        <tr><td>${escaparHTML(b.nombre)}</td><td>${b.porcentaje}%</td><td class="cantidad">${formatearCantidad(b.cantidad, b.unidad)}</td></tr>
+                    `).join('')}
                 </tbody>
             </table>
 
@@ -806,11 +817,10 @@ function exportarRecetaCSV() {
     csv += '\n';
 
     csv += 'BIGA\n';
-    csv += 'Ingrediente,Porcentaje,Cantidad\n';
-    csv += `Harina,${receta.biga.harina}%,${calculo.biga.harina.toFixed(2)} kg\n`;
-    csv += `Agua,${receta.biga.agua}%,${calculo.biga.agua.toFixed(2)} L\n`;
-    csv += `Levadura,${receta.biga.levadura}%,${calculo.biga.levadura} g\n`;
-    csv += `Panatura,${receta.biga.panatura}%,${calculo.biga.panatura} g\n`;
+    csv += 'Ingrediente,Porcentaje,Cantidad,Unidad\n';
+    calculo.biga.forEach(b => {
+        csv += `${b.nombre},${b.porcentaje}%,${b.cantidad},${b.unidad}\n`;
+    });
 
     try {
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

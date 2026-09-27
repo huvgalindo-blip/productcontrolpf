@@ -1,4 +1,3 @@
-
 /**
  * ============================================================
  * MÓDULO: CALCULADORA DE MASA
@@ -8,13 +7,15 @@
  *   - Harinas, ingredientes y biga editables
  *   - Cálculo en tiempo real
  *   - Guardar/cargar/duplicar/eliminar recetas
+ *   - Sistema de pestañas (máx 6 recetas abiertas a la vez)
  *   - Impresión y exportación CSV
  * 
  * Dependencias: datos.js, utilidades.js
  * 
  * Estructura en localStorage:
- *   - datos.recetasMasa: {}  (diccionario por id)
- *   - datos.recetaActivaMasa: "id-receta"
+ *   - datos.recetasMasa: {}          (diccionario por id)
+ *   - datos.recetaActivaMasa: "id"   (pestaña activa)
+ *   - datos.pestanasMasa: []         (array de ids abiertas, máx 6)
  * ============================================================
  */
 
@@ -24,6 +25,8 @@
 
 const UNIDADES_VALIDAS = ['kg', 'L', 'g'];
 const CLAVE_RECETA_ACTIVA = 'recetaActivaMasa';
+const CLAVE_PESTANAS = 'pestanasMasa';
+const MAX_PESTANAS = 6;
 
 let recetaEnEdicion = null;
 
@@ -31,10 +34,6 @@ let recetaEnEdicion = null;
 // 2. RECETAS POR DEFECTO
 // ============================================================
 
-/**
- * Estructura por defecto de la biga (formato array editable).
- * Sin panatura.
- */
 function bigaPorDefecto(estacion = 'verano') {
     const agua = estacion === 'invierno' ? 56 : 51;
     return [
@@ -87,18 +86,12 @@ function crearRecetaInvierno() {
 // 2.1 MIGRACIÓN DE FORMATOS ANTIGUOS
 // ============================================================
 
-/**
- * Asegura que la biga esté en formato array y sin panatura.
- * Si viene en formato objeto antiguo {harina, agua, levadura, panatura},
- * lo convierte al nuevo formato eliminando panatura.
- */
 function migrarBigaSiNecesario(receta) {
     if (!receta.biga) {
         receta.biga = bigaPorDefecto(receta.estacion || 'verano');
         return receta;
     }
 
-    // Si es formato objeto antiguo, convertir a array
     if (!Array.isArray(receta.biga)) {
         const obj = receta.biga;
         receta.biga = [
@@ -109,12 +102,10 @@ function migrarBigaSiNecesario(receta) {
         return receta;
     }
 
-    // Si ya es array, eliminar panatura si existe
     receta.biga = receta.biga.filter(b =>
         !b.nombre.toLowerCase().includes('panatura')
     );
 
-    // Si después de filtrar quedara vacía, restaurar por defecto
     if (receta.biga.length === 0) {
         receta.biga = bigaPorDefecto(receta.estacion || 'verano');
     }
@@ -138,13 +129,36 @@ function obtenerRecetasMasa(datos) {
     return datos.recetasMasa;
 }
 
+/**
+ * Obtiene la lista de pestañas abiertas.
+ * Si no existe, inicializa con la receta activa (o la primera).
+ */
+function obtenerPestanasAbiertas(datos) {
+    if (!Array.isArray(datos[CLAVE_PESTANAS])) {
+        const activa = datos[CLAVE_RECETA_ACTIVA];
+        datos[CLAVE_PESTANAS] = activa ? [activa] : [];
+        guardarDatos(datos);
+    }
+    // Limpiar pestañas que apunten a recetas inexistentes
+    datos[CLAVE_PESTANAS] = datos[CLAVE_PESTANAS].filter(id =>
+        datos.recetasMasa[id]
+    );
+    // Si no queda ninguna, coger la primera
+    if (datos[CLAVE_PESTANAS].length === 0) {
+        const primera = Object.keys(datos.recetasMasa)[0];
+        if (primera) datos[CLAVE_PESTANAS] = [primera];
+    }
+    return datos[CLAVE_PESTANAS];
+}
+
 function obtenerRecetaActiva() {
     const datos = cargarDatos();
     const recetas = obtenerRecetasMasa(datos);
+    const pestanas = obtenerPestanasAbiertas(datos);
 
     let idActiva = datos[CLAVE_RECETA_ACTIVA];
     if (!idActiva || !recetas[idActiva]) {
-        idActiva = Object.keys(recetas)[0];
+        idActiva = pestanas[0] || Object.keys(recetas)[0];
     }
 
     let receta = JSON.parse(JSON.stringify(recetas[idActiva]));
@@ -158,6 +172,14 @@ function persistirRecetaActiva(datos, receta) {
     receta.updatedAt = new Date().toISOString();
     datos.recetasMasa[receta.id] = receta;
     datos[CLAVE_RECETA_ACTIVA] = receta.id;
+    // Asegurar que esté en la lista de pestañas
+    if (!Array.isArray(datos[CLAVE_PESTANAS])) datos[CLAVE_PESTANAS] = [];
+    if (!datos[CLAVE_PESTANAS].includes(receta.id)) {
+        datos[CLAVE_PESTANAS].push(receta.id);
+        if (datos[CLAVE_PESTANAS].length > MAX_PESTANAS) {
+            datos[CLAVE_PESTANAS] = datos[CLAVE_PESTANAS].slice(-MAX_PESTANAS);
+        }
+    }
     guardarDatos(datos);
 }
 
@@ -165,13 +187,9 @@ function persistirRecetaActiva(datos, receta) {
 // 4. CÁLCULO DE LA RECETA
 // ============================================================
 
-/**
- * Calcula las cantidades finales de una receta.
- */
 function calcularReceta(receta) {
     const kgHarina = parseFloat(receta.kilosHarina) || 0;
 
-    // --- Harinas ---
     const harinasCalculadas = receta.harinas.map(h => {
         const porcentaje = parseFloat(h.porcentaje) || 0;
         return {
@@ -180,14 +198,12 @@ function calcularReceta(receta) {
         };
     });
 
-    // --- Ingredientes ---
     const ingredientesCalculados = receta.ingredientes.map(i => {
         const porcentaje = parseFloat(i.porcentaje) || 0;
         const cantidadBase = kgHarina * porcentaje / 100;
         return { ...i, cantidad: convertirCantidad(cantidadBase, i.unidad) };
     });
 
-    // --- Biga ---
     const ingBiga = ingredientesCalculados.find(i =>
         i.nombre.toLowerCase() === 'biga'
     );
@@ -239,24 +255,76 @@ function renderizarCalculadoraMasa() {
 
     setTimeout(() => {
         try {
-            const { datos, receta } = obtenerRecetaActiva();
+            const { datos, receta, idActiva } = obtenerRecetaActiva();
             recetaEnEdicion = receta;
 
             const calculo = calcularReceta(receta);
+            const recetas = obtenerRecetasMasa(datos);
+            const pestanas = obtenerPestanasAbiertas(datos);
 
             const sumaPorcentajesHarinas = receta.harinas.reduce(
                 (s, h) => s + (parseFloat(h.porcentaje) || 0), 0
             );
             const sumaCorrecta = Math.abs(sumaPorcentajesHarinas - 100) < 0.01;
 
+            // --- Barra de pestañas ---
+            let pestanasHTML = '';
+            pestanas.forEach(id => {
+                const r = recetas[id];
+                if (!r) return;
+                const activa = id === idActiva;
+                pestanasHTML += `
+                    <div style="display: inline-flex; align-items: center; gap: 4px;
+                                padding: 6px 10px; border-radius: 6px 6px 0 0;
+                                background: ${activa ? 'var(--primary)' : '#e0e0e0'};
+                                color: ${activa ? 'white' : '#555'};
+                                font-weight: ${activa ? 'bold' : 'normal'};
+                                cursor: pointer; font-size: 0.85rem;
+                                white-space: nowrap; max-width: 220px;
+                                border: 1px solid ${activa ? 'var(--primary)' : '#ccc'};
+                                border-bottom: none;"
+                         onclick="cambiarPestanaMasa('${id}')"
+                         title="${escaparHTML(r.nombre)}">
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${escaparHTML(r.nombre)}
+                        </span>
+                        ${pestanas.length > 1 ? `
+                            <span style="cursor: pointer; opacity: 0.7; padding: 0 2px;"
+                                  onclick="event.stopPropagation(); cerrarPestanaMasa('${id}')"
+                                  title="Cerrar esta pestaña">✖</span>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            // Botón añadir pestaña (nueva o cargar existente)
+            pestanasHTML += `
+                <button class="btn btn-secondary btn-sm"
+                        onclick="abrirMenuAnadirPestana()"
+                        style="border-radius: 0 6px 6px 0; padding: 6px 12px; font-size: 0.85rem;"
+                        title="Añadir pestaña">➕</button>
+            `;
+
             let html = `
                 <div class="vista active">
-                    <div class="vista-header">
+
+                    <!-- BARRA DE PESTAÑAS -->
+                    <div style="display: flex; align-items: flex-end; gap: 2px; margin-bottom: 0; flex-wrap: wrap;
+                                border-bottom: 2px solid var(--primary); padding-bottom: 0; min-height: 38px;">
+                        ${pestanasHTML}
+                        <span style="flex: 1;"></span>
+                        <span style="font-size: 0.75rem; color: #999; padding: 6px 10px;">
+                            ${pestanas.length} / ${MAX_PESTANAS} pestañas
+                        </span>
+                    </div>
+
+                    <div class="vista-header" style="margin-top: 15px;">
                         <div>
                             <h2>🧮 Calculadora de Masa</h2>
                             <span class="subtitle">Receta dinámica de masa y biga</span>
                         </div>
                         <div class="flex gap-10">
+                            <button class="btn btn-primary btn-sm" onclick="duplicarRecetaActual()" title="Duplicar receta actual como nueva pestaña">📋 Duplicar</button>
                             <button class="btn btn-secondary btn-sm" onclick="abrirModalRecetas()">📂 Recetas</button>
                             <button class="btn btn-primary btn-sm" onclick="guardarRecetaActual()">💾 Guardar</button>
                             <button class="btn btn-secondary btn-sm" onclick="imprimirReceta()">🖨️ Imprimir</button>
@@ -480,12 +548,108 @@ function renderizarCalculadoraMasa() {
 }
 
 // ============================================================
+// 5.1 GESTIÓN DE PESTAÑAS
+// ============================================================
+
+/**
+ * Cambia a la pestaña indicada.
+ */
+function cambiarPestanaMasa(idReceta) {
+    const datos = cargarDatos();
+    const recetas = obtenerRecetasMasa(datos);
+    if (!recetas[idReceta]) {
+        mostrarNotificacion('⚠️ Receta no encontrada', 'warning');
+        return;
+    }
+    datos[CLAVE_RECETA_ACTIVA] = idReceta;
+    guardarDatos(datos);
+    renderizarCalculadoraMasa();
+}
+
+/**
+ * Cierra la pestaña indicada (no borra la receta).
+ */
+function cerrarPestanaMasa(idReceta) {
+    const datos = cargarDatos();
+    const pestanas = obtenerPestanasAbiertas(datos);
+
+    if (pestanas.length <= 1) {
+        mostrarNotificacion('⚠️ Debe quedar al menos 1 pestaña abierta', 'warning');
+        return;
+    }
+
+    const idx = pestanas.indexOf(idReceta);
+    if (idx === -1) return;
+
+    pestanas.splice(idx, 1);
+
+    // Si cerramos la activa, activar la primera disponible
+    if (datos[CLAVE_RECETA_ACTIVA] === idReceta) {
+        datos[CLAVE_RECETA_ACTIVA] = pestanas[0];
+    }
+
+    guardarDatos(datos);
+    renderizarCalculadoraMasa();
+    mostrarNotificacion('✅ Pestaña cerrada', 'info');
+}
+
+/**
+ * Abre un menú (prompt) para añadir una pestaña:
+ * opción 1: nueva receta en blanco
+ * opción 2: cargar receta existente que no esté abierta
+ */
+function abrirMenuAnadirPestana() {
+    const datos = cargarDatos();
+    const recetas = obtenerRecetasMasa(datos);
+    const pestanas = obtenerPestanasAbiertas(datos);
+
+    if (pestanas.length >= MAX_PESTANAS) {
+        mostrarNotificacion(`⚠️ Máximo ${MAX_PESTANAS} pestañas abiertas`, 'warning');
+        return;
+    }
+
+    // Recetas no abiertas en pestaña
+    const idsCerradas = Object.keys(recetas).filter(id =>
+        !pestanas.includes(id)
+    );
+
+    let msg = '➕ Añadir pestaña:\n\n';
+    msg += '1. ✨ Crear receta NUEVA (duplicando la actual)\n';
+    if (idsCerradas.length > 0) {
+        msg += '\nO cargar una receta existente:\n';
+        idsCerradas.forEach((id, i) => {
+            msg += `${i + 2}. 📂 ${recetas[id].nombre}\n`;
+        });
+    }
+    msg += '\n0. Cancelar';
+
+    const sel = prompt(msg);
+    if (!sel || sel === '0') return;
+    const idx = parseInt(sel);
+
+    if (idx === 1) {
+        // Crear receta nueva duplicando la actual
+        duplicarRecetaActual();
+    } else if (idx >= 2 && idx - 2 < idsCerradas.length) {
+        // Cargar receta existente
+        const idCargar = idsCerradas[idx - 2];
+        pestanas.push(idCargar);
+        datos[CLAVE_RECETA_ACTIVA] = idCargar;
+        guardarDatos(datos);
+        renderizarCalculadoraMasa();
+        mostrarNotificacion(`✅ Pestaña "${recetas[idCargar].nombre}" abierta`, 'success');
+    }
+}
+
+// ============================================================
 // 6. ACTUALIZACIONES DE LA RECETA
 // ============================================================
 
 function actualizarNombreReceta(valor) {
     recetaEnEdicion.nombre = valor.trim() || 'Receta sin nombre';
     persistirRecetaActiva(cargarDatos(), recetaEnEdicion);
+    // Actualizar el nombre también en la pestaña → re-render
+    renderizarCalculadoraMasa();
 }
 
 function actualizarKilosHarina(valor) {
@@ -625,20 +789,27 @@ function guardarRecetaActual() {
     mostrarNotificacion(`✅ Receta "${nombre}" guardada`, 'success');
 }
 
+/**
+ * Abre modal de recetas: cargar / duplicar / eliminar.
+ */
 function abrirModalRecetas() {
     const datos = cargarDatos();
     const recetas = obtenerRecetasMasa(datos);
     const ids = Object.keys(recetas);
+    const pestanas = obtenerPestanasAbiertas(datos);
 
-    let msg = 'Selecciona una receta para cargar:\n\n';
+    let msg = '📂 Gestión de recetas:\n\n';
+    msg += '— CARGAR EN PESTAÑA —\n';
     ids.forEach((id, i) => {
         const r = recetas[id];
-        const marca = id === datos[CLAVE_RECETA_ACTIVA] ? ' ✅' : '';
-        msg += `${i + 1}. ${r.nombre} (${r.kilosHarina} kg)${marca}\n`;
+        const abierta = pestanas.includes(id) ? ' 📑' : '';
+        const activa = id === datos[CLAVE_RECETA_ACTIVA] ? ' ✅' : '';
+        msg += `${i + 1}. ${r.nombre} (${r.kilosHarina} kg)${abierta}${activa}\n`;
     });
-    msg += `\n${ids.length + 1}. 📋 Duplicar receta actual\n`;
+    msg += `\n${ids.length + 1}. 📋 Duplicar receta actual (nueva pestaña)\n`;
     msg += `${ids.length + 2}. 🗑️ Eliminar una receta\n`;
     msg += `\n0. Cancelar`;
+    msg += `\n\n(📑 = ya abierta en pestaña)`;
 
     const sel = prompt(msg);
     if (!sel || sel === '0') return;
@@ -646,12 +817,22 @@ function abrirModalRecetas() {
 
     if (idx >= 0 && idx < ids.length) {
         const idSeleccionada = ids[idx];
-        let recetaCargada = JSON.parse(JSON.stringify(recetas[idSeleccionada]));
-        recetaCargada = migrarBigaSiNecesario(recetaCargada);
-        recetaEnEdicion = recetaCargada;
-        persistirRecetaActiva(datos, recetaEnEdicion);
-        renderizarCalculadoraMasa();
-        mostrarNotificacion(`✅ Receta "${recetaEnEdicion.nombre}" cargada`, 'success');
+        // Si ya está abierta, solo activarla
+        if (pestanas.includes(idSeleccionada)) {
+            cambiarPestanaMasa(idSeleccionada);
+        } else {
+            // Abrir nueva pestaña (si hay espacio)
+            if (pestanas.length >= MAX_PESTANAS) {
+                mostrarNotificacion(`⚠️ Máximo ${MAX_PESTANAS} pestañas. Cierra alguna.`, 'warning');
+                return;
+            }
+            let recetaCargada = JSON.parse(JSON.stringify(recetas[idSeleccionada]));
+            recetaCargada = migrarBigaSiNecesario(recetaCargada);
+            recetaEnEdicion = recetaCargada;
+            persistirRecetaActiva(datos, recetaEnEdicion);
+            renderizarCalculadoraMasa();
+            mostrarNotificacion(`✅ Receta "${recetaEnEdicion.nombre}" abierta`, 'success');
+        }
     } else if (idx === ids.length) {
         duplicarRecetaActual();
     } else if (idx === ids.length + 1) {
@@ -659,24 +840,49 @@ function abrirModalRecetas() {
     }
 }
 
+/**
+ * Duplica la receta actual creando una nueva pestaña.
+ */
 function duplicarRecetaActual() {
-    const nuevoNombre = prompt('Nombre para la receta duplicada:', recetaEnEdicion.nombre + ' (copia)');
-    if (!nuevoNombre) return;
-
     const datos = cargarDatos();
+    const pestanas = obtenerPestanasAbiertas(datos);
+
+    if (pestanas.length >= MAX_PESTANAS) {
+        mostrarNotificacion(`⚠️ Máximo ${MAX_PESTANAS} pestañas. Cierra alguna primero.`, 'warning');
+        return;
+    }
+
+    // Nombre automático
+    const nombreBase = recetaEnEdicion.nombre.replace(/\s*\(copia( \d+)?\)$/, '');
+    const recetas = obtenerRecetasMasa(datos);
+    const nombresExistentes = Object.values(recetas).map(r => r.nombre);
+    
+    let nuevoNombre = `${nombreBase} (copia)`;
+    let contador = 2;
+    while (nombresExistentes.includes(nuevoNombre)) {
+        nuevoNombre = `${nombreBase} (copia ${contador})`;
+        contador++;
+    }
+
     const nueva = JSON.parse(JSON.stringify(recetaEnEdicion));
     nueva.id = 'receta-' + Date.now();
-    nueva.nombre = nuevoNombre.trim();
+    nueva.nombre = nuevoNombre;
     nueva.createdAt = new Date().toISOString();
     nueva.updatedAt = new Date().toISOString();
 
+    // Guardar en recetas
     datos.recetasMasa[nueva.id] = nueva;
+
+    // Añadir pestaña y activarla
+    if (!Array.isArray(datos[CLAVE_PESTANAS])) datos[CLAVE_PESTANAS] = [];
+    datos[CLAVE_PESTANAS].push(nueva.id);
     datos[CLAVE_RECETA_ACTIVA] = nueva.id;
+
     guardarDatos(datos);
 
     recetaEnEdicion = nueva;
     renderizarCalculadoraMasa();
-    mostrarNotificacion(`✅ Receta duplicada como "${nueva.nombre}"`, 'success');
+    mostrarNotificacion(`✅ Receta duplicada: "${nuevoNombre}"`, 'success');
 }
 
 function eliminarRecetaPorPrompt(ids, recetas) {
@@ -696,14 +902,25 @@ function eliminarRecetaPorPrompt(ids, recetas) {
         mostrarNotificacion('⚠️ Debe quedar al menos 1 receta', 'warning');
         return;
     }
-    if (!confirm(`¿Eliminar la receta "${recetas[idEliminar].nombre}"?`)) return;
+    if (!confirm(`¿Eliminar la receta "${recetas[idEliminar].nombre}"?\n\nEsta acción no se puede deshacer.`)) return;
 
     const datos = cargarDatos();
     delete datos.recetasMasa[idEliminar];
 
-    if (datos[CLAVE_RECETA_ACTIVA] === idEliminar) {
-        datos[CLAVE_RECETA_ACTIVA] = Object.keys(datos.recetasMasa)[0];
+    // Quitar de pestañas
+    if (Array.isArray(datos[CLAVE_PESTANAS])) {
+        datos[CLAVE_PESTANAS] = datos[CLAVE_PESTANAS].filter(id => id !== idEliminar);
     }
+
+    // Si era la activa, cambiar
+    if (datos[CLAVE_RECETA_ACTIVA] === idEliminar) {
+        const restantes = Object.keys(datos.recetasMasa);
+        datos[CLAVE_RECETA_ACTIVA] = restantes[0];
+        if (Array.isArray(datos[CLAVE_PESTANAS]) && !datos[CLAVE_PESTANAS].includes(restantes[0])) {
+            datos[CLAVE_PESTANAS].unshift(restantes[0]);
+        }
+    }
+
     guardarDatos(datos);
 
     const { receta } = obtenerRecetaActiva();

@@ -9,9 +9,6 @@
 </head>
 <body>
     <div id="app">
-        <!-- ============================================= -->
-        <!-- NAVEGACIÓN                                     -->
-        <!-- ============================================= -->
         <nav id="navbar">
             <div class="nav-brand">
                 <span class="logo">🍕</span>
@@ -21,6 +18,7 @@
                 <button class="nav-btn active" data-vista="produccion">📋 Producción</button>
                 <button class="nav-btn" data-vista="dashboard">📊 Dashboard</button>
                 <button class="nav-btn" data-vista="amasado">🔄 Amasado</button>
+                <button class="nav-btn" data-vista="etiquetas">🏷️ Etiquetas</button>
                 <button class="nav-btn" data-vista="clientes">👥 Clientes</button>
                 <button class="nav-btn" data-vista="productos">📦 Productos</button>
                 <button class="nav-btn" data-vista="configuracion">⚙️ Config</button>
@@ -30,38 +28,27 @@
             </div>
         </nav>
 
-        <!-- ============================================= -->
-        <!-- CONTENIDO PRINCIPAL                            -->
-        <!-- ============================================= -->
         <main id="main-content">
             <div id="vista-container"></div>
         </main>
 
-        <!-- ============================================= -->
-        <!-- NOTIFICACIONES                                 -->
-        <!-- ============================================= -->
         <div id="notification" class="notification hidden"></div>
     </div>
 
-    <!-- ============================================= -->
-    <!-- SCRIPTS - MÓDULOS EN ORDEN DE DEPENDENCIA      -->
-    <!-- ============================================= -->
-    <!-- 1. Núcleo (constantes, localStorage, utilidades) -->
+    <!-- jsPDF (CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- Módulos de la app -->
     <script src="js/datos.js"></script>
     <script src="js/utilidades.js"></script>
-
-    <!-- 2. Modelos (productos, clientes) -->
     <script src="js/productos.js"></script>
     <script src="js/clientes.js"></script>
-
-    <!-- 3. Vistas principales -->
     <script src="js/produccion.js"></script>
     <script src="js/amasado.js"></script>
     <script src="js/calculadoraMasa.js"></script>
+    <script src="js/etiquetas.js"></script>
     <script src="js/dashboard.js"></script>
     <script src="js/configuracion.js"></script>
-
-    <!-- 4. Enrutador y arranque (SIEMPRE los últimos) -->
     <script src="js/ui.js"></script>
     <script src="js/app.js"></script>
 </body>

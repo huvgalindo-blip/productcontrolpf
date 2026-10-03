@@ -10,7 +10,8 @@
  *   - Datos reales: Hermanos Viudes S.L. + RGSEAA
  *   - Ficha técnica por producto (ingredientes, alérgenos, nutricional)
  *   - Vista previa en vivo
- *   - Generación de PDF con jsPDF
+ *   - Generación de PDF de 68 × 80 mm exactos (1 etiqueta = 1 página)
+ *   - Impresión directa para impresora térmica (window.print)
  *   - Historial de últimas 50 etiquetas
  * 
  * Dependencias: datos.js, utilidades.js, productos.js, clientes.js
@@ -29,7 +30,7 @@ const ETIQUETA_ANCHO_MM = 68;
 const ETIQUETA_ALTO_MM = 80;
 const MARGEN_MM = 2.5;
 
-// Datos fijos del operador (Hermanos Viudes S.L.)
+// Datos fijos del operador
 const DATOS_OPERADOR = {
     razonSocial: 'Hermanos Viudes S.L.',
     rgseaa: '20.044822/A',
@@ -121,14 +122,25 @@ const TEXTOS_I18N = {
     }
 };
 
+// Textos de conservación y elaboración
+const TEXTOS_CONSERVACION = {
+    es: 'Mantener refrigeradas entre 0°C y 4°C',
+    pt: 'Manter refrigerado entre 0°C e 4°C',
+    fr: 'Conserver au réfrigérateur entre 0°C et 4°C',
+    en: 'Keep refrigerated between 0°C and 4°C'
+};
+
+const TEXTOS_ELABORACION = {
+    es: 'Cocinar en horno a 200°C-300°C aprox.',
+    pt: 'Cozinhar no forno a 200°C-300°C aprox.',
+    fr: 'Cuire au four à 200°C-300°C env.',
+    en: 'Bake in oven at 200°C-300°C approx.'
+};
+
 // ============================================================
-// 1.1 FICHA TÉCNICA POR DEFECTO (Hermanos Viudes)
+// 1.1 FICHA TÉCNICA POR DEFECTO
 // ============================================================
 
-/**
- * Ficha técnica por defecto para nuevos productos.
- * Basada en la etiqueta real de Hermanos Viudes S.L.
- */
 function fichaTecnicaPorDefecto() {
     return {
         pesoNeto: '',
@@ -154,10 +166,6 @@ function fichaTecnicaPorDefecto() {
     };
 }
 
-/**
- * Asegura que un producto tenga los campos de ficha técnica.
- * Migra automáticamente los productos existentes.
- */
 function asegurarFichaTecnicaProducto(producto) {
     const defecto = fichaTecnicaPorDefecto();
     return {
@@ -176,9 +184,6 @@ function asegurarFichaTecnicaProducto(producto) {
     };
 }
 
-/**
- * Migra todos los productos del sistema (los que no tengan ficha técnica).
- */
 function migrarProductosConFichaTecnica(datos) {
     let cambios = false;
     datos.productos = datos.productos.map(p => {
@@ -272,7 +277,7 @@ function inicializarEstadoFormulario() {
         lote: generarLoteAutomatico(datos, fechaHoy),
         fechaProduccion: fechaHoy,
         fechaCaducidad: calcularFechaCaducidad(fechaHoy, diasCaducidad),
-        idiomas: ['es'],          // ES siempre por defecto
+        idiomas: ['es'],
         copias: 1
     };
 }
@@ -288,8 +293,6 @@ function renderizarEtiquetas() {
     setTimeout(() => {
         try {
             let datos = cargarDatos();
-
-            // Migrar productos con ficha técnica si es necesario
             datos.productos = migrarProductosConFichaTecnica(datos);
 
             if (!estadoFormularioEtiqueta) {
@@ -305,10 +308,11 @@ function renderizarEtiquetas() {
                     <div class="vista-header">
                         <div>
                             <h2>🏷️ Generador de Etiquetas</h2>
-                            <span class="subtitle">Etiquetas reglamentarias UE · 68 × 80 mm</span>
+                            <span class="subtitle">Etiquetas reglamentarias UE · 68 × 80 mm · Impresora térmica</span>
                         </div>
                         <div class="flex gap-10">
-                            <button class="btn btn-primary btn-sm" onclick="generarPDFEtiquetas()">📄 Generar PDF</button>
+                            <button class="btn btn-primary btn-sm" onclick="imprimirEtiquetaDirecto()" title="Imprimir directamente en la impresora térmica">🖨️ Imprimir</button>
+                            <button class="btn btn-secondary btn-sm" onclick="generarPDFEtiquetas()" title="Descargar PDF de 68×80 mm">📄 PDF</button>
                             <button class="btn btn-secondary btn-sm" onclick="resetearFormularioEtiqueta()">🔄 Limpiar</button>
                         </div>
                     </div>
@@ -394,7 +398,7 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
                         Peso: ${escaparHTML(productoSeleccionado.pesoNeto) || '—'}
                     </div>
                     <div style="margin-top: 6px; font-size: 0.8rem; color: #777;">
-                        ✏️ Para editar la ficha técnica ve a <strong>📦 Productos → Editar</strong>
+                        ✏️ Para editar la ficha técnica ve a <strong>📦 Productos → 📋</strong>
                     </div>
                 </div>
             ` : ''}
@@ -469,6 +473,10 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
                            onchange="actualizarCampoEtiqueta('copias', parseInt(this.value) || 1)">
                 </div>
             </div>
+            <div style="font-size: 0.75rem; color: #999; margin-top: 5px;">
+                🖨️ <strong>Imprimir</strong>: abre el diálogo de impresión de la impresora térmica.<br>
+                📄 <strong>PDF</strong>: descarga un archivo PDF con el tamaño exacto 68 × 80 mm.
+            </div>
         </div>
     `;
 }
@@ -504,9 +512,7 @@ function renderizarVistaPreviaEtiqueta(datos) {
     const escala = 3.5;
     const anchoPx = ETIQUETA_ANCHO_MM * escala;
     const altoPx = ETIQUETA_ALTO_MM * escala;
-    const numIdiomas = e.idiomas.length;
 
-    // Construir contenido para cada idioma
     const columnas = e.idiomas.map(idioma => {
         const t = TEXTOS_I18N[idioma];
         const ing = producto[`ingredientes${idioma.toUpperCase()}`] || producto.ingredientesES;
@@ -514,7 +520,7 @@ function renderizarVistaPreviaEtiqueta(datos) {
         const nut = producto.nutricional;
 
         return `
-            <div style="flex: 1; font-size: 5px; line-height: 1.15; padding: 0 2px;">
+            <div style="flex: 1; font-size: 5px; line-height: 1.15; padding: 0 2px; overflow: hidden;">
                 <div style="font-weight: bold; text-align: center; font-size: 6px; margin-bottom: 2px;">
                     ${escaparHTML(producto.nombre).toUpperCase()}
                 </div>
@@ -537,9 +543,9 @@ function renderizarVistaPreviaEtiqueta(datos) {
                     ${t.sal}: ${nut.sal}g
                 </div>
                 <div style="font-weight: bold; font-size: 5px; margin-top: 2px;">${t.conservacion}:</div>
-                <div style="font-size: 4.5px; margin-bottom: 1px;">Mantener refrigeradas entre 0°C y 4°C</div>
+                <div style="font-size: 4.5px; margin-bottom: 1px;">${TEXTOS_CONSERVACION[idioma]}</div>
                 <div style="font-weight: bold; font-size: 5px;">${t.elaboracao}:</div>
-                <div style="font-size: 4.5px;">Cocinar a 200-300°C aprox.</div>
+                <div style="font-size: 4.5px;">${TEXTOS_ELABORACION[idioma]}</div>
             </div>
         `;
     }).join('<div style="width: 1px; background: #ccc;"></div>');
@@ -557,7 +563,6 @@ function renderizarVistaPreviaEtiqueta(datos) {
             display: flex;
             flex-direction: column;
         ">
-            <!-- Cabecera -->
             <div style="font-size: 6px; font-weight: bold; color: #F7941E; text-align: center; border-bottom: 0.5px solid #F7941E; padding-bottom: 1px;">
                 🍕 QUALITY PIZZAFRESH · ${DATOS_OPERADOR.razonSocial}
             </div>
@@ -565,12 +570,10 @@ function renderizarVistaPreviaEtiqueta(datos) {
                 RGSEAA: ${DATOS_OPERADOR.rgseaa} · LOTE: <strong>${escaparHTML(e.lote)}</strong>
             </div>
 
-            <!-- Cuerpo con columnas idiomas -->
             <div style="flex: 1; display: flex; overflow: hidden;">
                 ${columnas}
             </div>
 
-            <!-- Pie -->
             <div style="font-size: 4px; text-align: center; border-top: 0.5px solid #ccc; padding-top: 1px; margin-top: 2px; color: #666;">
                 ${DATOS_OPERADOR.direccion} · ${DATOS_OPERADOR.paisOrigen}
             </div>
@@ -613,7 +616,7 @@ function renderizarHistorialEtiquetas(historial) {
                                 ${h.idiomas.map(i => i.toUpperCase()).join('+')}
                             </div>
                         </div>
-                        <button class="btn btn-secondary btn-sm" onclick="reimprimirDesdeHistorial(${idx})" title="Reimprimir">📄</button>
+                        <button class="btn btn-secondary btn-sm" onclick="reimprimirDesdeHistorial(${idx})" title="Cargar en formulario">📄</button>
                         <button class="btn btn-danger btn-sm" onclick="eliminarEntradaHistorial(${idx})" title="Eliminar">🗑️</button>
                     </div>
                 `).join('')}
@@ -684,308 +687,4 @@ function generarNuevoLote() {
 function resetearFormularioEtiqueta() {
     if (!confirm('⚠️ ¿Limpiar el formulario?')) return;
     estadoFormularioEtiqueta = null;
-    inicializarEstadoFormulario();
-    renderizarEtiquetas();
-    mostrarNotificacion('🔄 Formulario limpiado', 'info');
-}
-
-function actualizarVistaPreviaEtiqueta() {
-    const contenedor = document.getElementById('vista-previa-etiqueta');
-    if (!contenedor) return;
-    const datos = cargarDatos();
-    contenedor.innerHTML = renderizarVistaPreviaEtiqueta(datos);
-}
-
-// ============================================================
-// 8. GENERACIÓN DE PDF
-// ============================================================
-
-function generarPDFEtiquetas() {
-    const e = estadoFormularioEtiqueta;
-    if (!e) {
-        mostrarNotificacion('⚠️ Formulario vacío', 'warning');
-        return;
-    }
-    if (!e.productoId) {
-        mostrarNotificacion('⚠️ Selecciona un producto', 'warning');
-        return;
-    }
-    if (!e.lote) {
-        mostrarNotificacion('⚠️ El lote es obligatorio', 'warning');
-        return;
-    }
-
-    try {
-        if (typeof window.jspdf === 'undefined' && typeof window.jsPDF === 'undefined') {
-            mostrarNotificacion('❌ jsPDF no cargado. Recarga la página.', 'error');
-            return;
-        }
-
-        const { jsPDF } = window.jspdf || { jsPDF: window.jsPDF };
-        const datos = cargarDatos();
-        const productos = obtenerProductosActivos(datos).map(asegurarFichaTecnicaProducto);
-        const producto = productos.find(p => p.id === e.productoId);
-
-        if (!producto) {
-            mostrarNotificacion('❌ Producto no encontrado', 'error');
-            return;
-        }
-
-        const doc = new jsPDF({
-            orientation: 'portrait',
-            unit: 'mm',
-            format: 'a4'
-        });
-
-        const etiquetasPorFila = 3;
-        const etiquetasPorColumna = 3;
-        const etiquetasPorPagina = etiquetasPorFila * etiquetasPorColumna;
-
-        const anchoTotal = etiquetasPorFila * ETIQUETA_ANCHO_MM;
-        const altoTotal = etiquetasPorColumna * ETIQUETA_ALTO_MM;
-        const margenX = (210 - anchoTotal) / 2;
-        const margenY = (297 - altoTotal) / 2;
-
-        const total = e.copias;
-        let contador = 0;
-
-        for (let i = 0; i < total; i++) {
-            if (contador > 0 && contador % etiquetasPorPagina === 0) {
-                doc.addPage();
-            }
-            const posEnPagina = contador % etiquetasPorPagina;
-            const col = posEnPagina % etiquetasPorFila;
-            const fila = Math.floor(posEnPagina / etiquetasPorFila);
-            const x = margenX + col * ETIQUETA_ANCHO_MM;
-            const y = margenY + fila * ETIQUETA_ALTO_MM;
-
-            dibujarEtiquetaEnPDF(doc, x, y, e, producto);
-            contador++;
-        }
-
-        const nombreArchivo = `etiquetas_${producto.nombre.replace(/\s+/g, '_')}_${e.lote}_${obtenerFechaActual()}.pdf`;
-        doc.save(nombreArchivo);
-
-        añadirAlHistorialEtiquetas(datos, {
-            id: 'etq-' + Date.now(),
-            productoId: e.productoId,
-            productoNombre: producto.nombre,
-            lote: e.lote,
-            fechaProduccion: e.fechaProduccion,
-            fechaCaducidad: e.fechaCaducidad,
-            idiomas: [...e.idiomas],
-            copias: e.copias,
-            generadoEn: new Date().toISOString()
-        });
-
-        mostrarNotificacion(`✅ ${total} etiqueta${total > 1 ? 's' : ''} generada${total > 1 ? 's' : ''}`, 'success');
-        renderizarEtiquetas();
-
-    } catch (error) {
-        console.error('❌ Error al generar PDF:', error);
-        mostrarNotificacion('❌ Error al generar PDF: ' + error.message, 'error');
-    }
-}
-
-/**
- * Dibuja una etiqueta individual (68 × 80 mm) en el PDF.
- * Formato compacto con cabecera, columnas de idiomas y pie.
- */
-function dibujarEtiquetaEnPDF(doc, x, y, e, producto) {
-    const W = ETIQUETA_ANCHO_MM;
-    const H = ETIQUETA_ALTO_MM;
-    const M = MARGEN_MM;
-    const interiorW = W - 2 * M;
-    const numIdiomas = e.idiomas.length;
-    const anchoColumna = interiorW / numIdiomas;
-
-    // --- Recuadro exterior ---
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.1);
-    doc.rect(x, y, W, H);
-
-    let cursorY = y + M;
-
-    // --- Cabecera ---
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.setTextColor(247, 148, 30);
-    doc.text('QUALITY PIZZAFRESH · ' + DATOS_OPERADOR.razonSocial, x + W / 2, cursorY, { align: 'center', maxWidth: interiorW });
-    cursorY += 2.5;
-    doc.setFontSize(4.5);
-    doc.setTextColor(0, 0, 0);
-    doc.setFont('helvetica', 'normal');
-    doc.text('RGSEAA: ' + DATOS_OPERADOR.rgseaa, x + W / 2, cursorY, { align: 'center', maxWidth: interiorW });
-    cursorY += 1;
-    doc.setDrawColor(247, 148, 30);
-    doc.line(x + M, cursorY, x + W - M, cursorY);
-    cursorY += 1.5;
-
-    // --- Lote (destacado) ---
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(5);
-    doc.text('LOTE: ' + e.lote, x + W / 2, cursorY, { align: 'center', maxWidth: interiorW });
-    cursorY += 2;
-
-    // --- Columnas por idioma ---
-    e.idiomas.forEach((idioma, idx) => {
-        const colX = x + M + (idx * anchoColumna);
-        const colAncho = anchoColumna - 0.5;
-        const t = TEXTOS_I18N[idioma];
-        const ing = producto[`ingredientes${idioma.toUpperCase()}`] || producto.ingredientesES;
-        const aler = producto[`alergenos${idioma.toUpperCase()}`] || producto.alergenosES;
-        const nut = producto.nutricional;
-
-        let cy = cursorY;
-
-        // Separador vertical entre columnas
-        if (idx > 0) {
-            doc.setDrawColor(220, 220, 220);
-            doc.setLineWidth(0.05);
-            doc.line(colX - 0.25, cursorY - 1, colX - 0.25, y + H - M - 6);
-        }
-
-        // Nombre producto
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(5);
-        doc.text(producto.nombre.toUpperCase(), colX + colAncho / 2, cy, { align: 'center', maxWidth: colAncho });
-        cy += 2.5;
-
-        // Fechas
-        doc.setFontSize(4);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`${t.fechaElaboracion}: ${formatearFechaEtiqueta(e.fechaProduccion)}`, colX, cy, { maxWidth: colAncho });
-        cy += 1.8;
-        doc.text(`${t.consumoPreferente}: ${formatearFechaEtiqueta(e.fechaCaducidad)}`, colX, cy, { maxWidth: colAncho });
-        cy += 2.2;
-
-        // Ingredientes
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(4);
-        doc.text(t.ingredientes + ':', colX, cy, { maxWidth: colAncho });
-        cy += 1.6;
-        doc.setFont('helvetica', 'normal');
-        const lineasIng = doc.splitTextToSize(ing, colAncho);
-        doc.text(lineasIng.slice(0, 4), colX, cy);
-        cy += Math.min(lineasIng.length, 4) * 1.4 + 1;
-
-        // Alérgenos
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(200, 0, 0);
-        const lineasAler = doc.splitTextToSize(aler, colAncho);
-        doc.text(lineasAler.slice(0, 3), colX, cy);
-        cy += Math.min(lineasAler.length, 3) * 1.4 + 1;
-        doc.setTextColor(0, 0, 0);
-
-        // Información nutricional
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(4);
-        doc.text(t.infoNutricional, colX, cy, { maxWidth: colAncho });
-        cy += 1.6;
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(3.5);
-        doc.text(t.valorMedio, colX, cy, { maxWidth: colAncho });
-        cy += 1.4;
-        doc.setFont('helvetica', 'normal');
-
-        const nutricional = [
-            `${t.energia}: ${nut.energiaKJ}KJ/${nut.energiaKcal}kcal`,
-            `${t.grasas}: ${nut.grasas}g`,
-            `${t.grasasSaturadas}: ${nut.grasasSaturadas}g`,
-            `${t.hidratos}: ${nut.hidratos}g`,
-            `${t.azucares}: ${nut.azucares}g`,
-            `${t.proteinas}: ${nut.proteinas}g`,
-            `${t.sal}: ${nut.sal}g`
-        ];
-        nutricional.forEach(linea => {
-            doc.text(linea, colX, cy, { maxWidth: colAncho });
-            cy += 1.4;
-        });
-        cy += 0.5;
-
-        // Conservación y elaboración
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(4);
-        doc.text(t.conservacion + ':', colX, cy, { maxWidth: colAncho });
-        cy += 1.4;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(3.5);
-        const conservacionTexto = idioma === 'pt'
-            ? 'Manter refrigerado entre 0°C e 4°C'
-            : idioma === 'fr'
-                ? 'Conserver au réfrigérateur entre 0°C et 4°C'
-                : idioma === 'en'
-                    ? 'Keep refrigerated between 0°C and 4°C'
-                    : 'Mantener refrigeradas entre 0°C y 4°C';
-        doc.text(conservacionTexto, colX, cy, { maxWidth: colAncho });
-        cy += 1.6;
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(4);
-        doc.text(t.elaboracao + ':', colX, cy, { maxWidth: colAncho });
-        cy += 1.4;
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(3.5);
-        const elaboracionTexto = idioma === 'pt'
-            ? 'Cozinhar no forno a 200°C-300°C aprox.'
-            : idioma === 'fr'
-                ? 'Cuire au four à 200°C-300°C env.'
-                : idioma === 'en'
-                    ? 'Bake in oven at 200°C-300°C approx.'
-                    : 'Cocinar en horno a 200°C-300°C aprox.';
-        doc.text(elaboracionTexto, colX, cy, { maxWidth: colAncho });
-    });
-
-    // --- Pie ---
-    const pieY = y + H - M - 2;
-    doc.setDrawColor(180, 180, 180);
-    doc.setLineWidth(0.05);
-    doc.line(x + M, pieY - 1, x + W - M, pieY - 1);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(3.5);
-    doc.setTextColor(120, 120, 120);
-    doc.text(`${DATOS_OPERADOR.direccion} · ${DATOS_OPERADOR.paisOrigen}`, x + W / 2, pieY + 0.8, { align: 'center', maxWidth: interiorW });
-}
-
-// ============================================================
-// 9. ACCIONES DEL HISTORIAL
-// ============================================================
-
-function reimprimirDesdeHistorial(idx) {
-    const datos = cargarDatos();
-    const historial = obtenerHistorialEtiquetas(datos);
-    const entrada = historial[idx];
-    if (!entrada) return;
-
-    estadoFormularioEtiqueta = {
-        productoId: entrada.productoId,
-        clienteId: null,
-        lote: entrada.lote,
-        fechaProduccion: entrada.fechaProduccion,
-        fechaCaducidad: entrada.fechaCaducidad,
-        idiomas: [...entrada.idiomas],
-        copias: entrada.copias
-    };
-
-    renderizarEtiquetas();
-    mostrarNotificacion('📄 Etiqueta cargada. Revisa y genera el PDF.', 'info');
-}
-
-function eliminarEntradaHistorial(idx) {
-    if (!confirm('⚠️ ¿Eliminar esta entrada del historial?')) return;
-    const datos = cargarDatos();
-    const historial = obtenerHistorialEtiquetas(datos);
-    historial.splice(idx, 1);
-    guardarDatos(datos);
-    renderizarEtiquetas();
-    mostrarNotificacion('✅ Entrada eliminada', 'success');
-}
-
-function limpiarHistorialEtiquetas() {
-    if (!confirm('⚠️ ¿Eliminar TODO el historial de etiquetas?')) return;
-    const datos = cargarDatos();
-    datos[CLAVE_HISTORIAL_ETIQUETAS] = [];
-    guardarDatos(datos);
-    renderizarEtiquetas();
-    mostrarNotificacion('✅ Historial limpiado', 'success');
-}
+    inicializarEstadoFormulario

@@ -1,3 +1,4 @@
+
 /**
  * ============================================================
  * MÓDULO: UI (ENRUTADOR Y EVENTOS)
@@ -7,6 +8,10 @@
  *   - Recuperar la vista activa
  *   - Menú móvil (hamburguesa)
  *   - Registro de eventos globales (nav, teclas rápidas, clicks)
+ * 
+ * Vistas disponibles:
+ *   produccion | dashboard | amasado | calculadoraMasa |
+ *   etiquetas | clientes | productos | configuracion
  * 
  * Dependencias: todos los módulos de vistas
  * ============================================================
@@ -18,7 +23,6 @@
 
 /**
  * Cambia a la vista indicada: marca el botón activo y renderiza el contenido.
- * Vistas válidas: produccion | dashboard | amasado | calculadoraMasa | clientes | productos | configuracion
  * 
  * @param {string} vista 
  */
@@ -43,6 +47,9 @@ function cambiarVista(vista) {
             break;
         case 'calculadoraMasa':
             renderizarCalculadoraMasa();
+            break;
+        case 'etiquetas':
+            renderizarEtiquetas();
             break;
         case 'clientes':
             renderizarClientes();
@@ -131,10 +138,10 @@ function configurarEventos() {
 
     // --- 3.3 Teclas rápidas ---
     document.addEventListener('keydown', function(e) {
-        // Ctrl+1..6 → cambio de vista
-        if (e.ctrlKey && e.key >= '1' && e.key <= '6') {
+        // Ctrl+1..7 → cambio de vista
+        if (e.ctrlKey && e.key >= '1' && e.key <= '7') {
             e.preventDefault();
-            const vistas = ['produccion', 'dashboard', 'amasado', 'clientes', 'productos', 'configuracion'];
+            const vistas = ['produccion', 'dashboard', 'amasado', 'etiquetas', 'clientes', 'productos', 'configuracion'];
             const index = parseInt(e.key) - 1;
             if (index >= 0 && index < vistas.length) {
                 cambiarVista(vistas[index]);

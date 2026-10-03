@@ -687,4 +687,524 @@ function generarNuevoLote() {
 function resetearFormularioEtiqueta() {
     if (!confirm('⚠️ ¿Limpiar el formulario?')) return;
     estadoFormularioEtiqueta = null;
-    inicializarEstadoFormulario
+    inicializarEstadoFormulario();
+    renderizarEtiquetas();
+    mostrarNotificacion('🔄 Formulario limpiado', 'info');
+}
+
+function actualizarVistaPreviaEtiqueta() {
+    const contenedor = document.getElementById('vista-previa-etiqueta');
+    if (!contenedor) return;
+    const datos = cargarDatos();
+    contenedor.innerHTML = renderizarVistaPreviaEtiqueta(datos);
+}
+
+// ============================================================
+// 8. GENERACIÓN DE PDF (68 × 80 mm exactos para impresora térmica)
+// ============================================================
+
+/**
+ * Genera un PDF con tamaño exacto 68 × 80 mm.
+ * 1 etiqueta = 1 página (para impresora térmica).
+ * Si hay varias copias, se crean varias páginas idénticas.
+ */
+function generarPDFEtiquetas() {
+    const e = estadoFormularioEtiqueta;
+    if (!e) {
+        mostrarNotificacion('⚠️ Formulario vacío', 'warning');
+        return;
+    }
+    if (!e.productoId) {
+        mostrarNotificacion('⚠️ Selecciona un producto', 'warning');
+        return;
+    }
+    if (!e.lote) {
+        mostrarNotificacion('⚠️ El lote es obligatorio', 'warning');
+        return;
+    }
+
+    try {
+        if (typeof window.jspdf === 'undefined' && typeof window.jsPDF === 'undefined') {
+            mostrarNotificacion('❌ jsPDF no cargado. Recarga la página.', 'error');
+            return;
+        }
+
+        const { jsPDF } = window.jspdf || { jsPDF: window.jsPDF };
+        const datos = cargarDatos();
+        const productos = obtenerProductosActivos(datos).map(asegurarFichaTecnicaProducto);
+        const producto = productos.find(p => p.id === e.productoId);
+
+        if (!producto) {
+            mostrarNotificacion('❌ Producto no encontrado', 'error');
+            return;
+        }
+
+        // PDF con formato exacto 68 × 80 mm
+        const doc = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: [ETIQUETA_ANCHO_MM, ETIQUETA_ALTO_MM]
+        });
+
+        const total = e.copias;
+
+        for (let i = 0; i < total; i++) {
+            if (i > 0) doc.addPage([ETIQUETA_ANCHO_MM, ETIQUETA_ALTO_MM], 'portrait');
+            dibujarEtiquetaEnPDF(doc, 0, 0, e, producto);
+        }
+
+        const nombreArchivo = `etiqueta_${producto.nombre.replace(/\s+/g, '_')}_${e.lote}_${obtenerFechaActual()}.pdf`;
+        doc.save(nombreArchivo);
+
+        añadirAlHistorialEtiquetas(datos, {
+            id: 'etq-' + Date.now(),
+            productoId: e.productoId,
+            productoNombre: producto.nombre,
+            lote: e.lote,
+            fechaProduccion: e.fechaProduccion,
+            fechaCaducidad: e.fechaCaducidad,
+            idiomas: [...e.idiomas],
+            copias: e.copias,
+            generadoEn: new Date().toISOString()
+        });
+
+        mostrarNotificacion(`✅ PDF generado (${total} etiqueta${total > 1 ? 's' : ''})`, 'success');
+        renderizarEtiquetas();
+
+    } catch (error) {
+        console.error('❌ Error al generar PDF:', error);
+        mostrarNotificacion('❌ Error al generar PDF: ' + error.message, 'error');
+    }
+}
+
+// ============================================================
+// 9. IMPRESIÓN DIRECTA (para impresora térmica)
+// ============================================================
+
+/**
+ * Abre una ventana con la etiqueta en tamaño 68 × 80 mm y lanza print().
+ * Optimizado para impresoras térmicas de etiquetas.
+ */
+function imprimirEtiquetaDirecto() {
+    const e = estadoFormularioEtiqueta;
+    if (!e) {
+        mostrarNotificacion('⚠️ Formulario vacío', 'warning');
+        return;
+    }
+    if (!e.productoId) {
+        mostrarNotificacion('⚠️ Selecciona un producto', 'warning');
+        return;
+    }
+    if (!e.lote) {
+        mostrarNotificacion('⚠️ El lote es obligatorio', 'warning');
+        return;
+    }
+
+    try {
+        const datos = cargarDatos();
+        const productos = obtenerProductosActivos(datos).map(asegurarFichaTecnicaProducto);
+        const producto = productos.find(p => p.id === e.productoId);
+
+        if (!producto) {
+            mostrarNotificacion('❌ Producto no encontrado', 'error');
+            return;
+        }
+
+        // Generar el HTML de UNA etiqueta
+        const etiquetaHTML = renderizarEtiquetaParaImpresion(e, producto);
+
+        // Crear una ventana con el HTML de impresión
+        const ventana = window.open('', '_blank', 'width=400,height=600');
+        if (!ventana) {
+            mostrarNotificacion('❌ Bloqueador de ventanas activo. Permite popups.', 'error');
+            return;
+        }
+
+        ventana.document.write(`
+            <!DOCTYPE html>
+            <html lang="es">
+            <head>
+                <meta charset="UTF-8">
+                <title>Imprimir etiqueta - ${escaparHTML(producto.nombre)}</title>
+                <style>
+                    @page {
+                        size: ${ETIQUETA_ANCHO_MM}mm ${ETIQUETA_ALTO_MM}mm;
+                        margin: 0;
+                    }
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }
+                    html, body {
+                        width: ${ETIQUETA_ANCHO_MM}mm;
+                        height: ${ETIQUETA_ALTO_MM}mm;
+                        font-family: Arial, sans-serif;
+                        color: #000;
+                        background: white;
+                    }
+                    .etiqueta {
+                        width: ${ETIQUETA_ANCHO_MM}mm;
+                        height: ${ETIQUETA_ALTO_MM}mm;
+                        padding: ${MARGEN_MM}mm;
+                        display: flex;
+                        flex-direction: column;
+                        page-break-after: always;
+                    }
+                    .etiqueta:last-child {
+                        page-break-after: auto;
+                    }
+                    @media print {
+                        body { margin: 0; }
+                        .no-print { display: none; }
+                    }
+                </style>
+            </head>
+            <body>
+                ${Array(e.copias).fill(etiquetaHTML).join('')}
+                <script>
+                    window.onload = function() {
+                        setTimeout(function() {
+                            window.print();
+                        }, 300);
+                    };
+                <\/script>
+            </body>
+            </html>
+        `);
+
+        ventana.document.close();
+
+        // Guardar en historial
+        añadirAlHistorialEtiquetas(datos, {
+            id: 'etq-' + Date.now(),
+            productoId: e.productoId,
+            productoNombre: producto.nombre,
+            lote: e.lote,
+            fechaProduccion: e.fechaProduccion,
+            fechaCaducidad: e.fechaCaducidad,
+            idiomas: [...e.idiomas],
+            copias: e.copias,
+            generadoEn: new Date().toISOString(),
+            metodo: 'impresion-directa'
+        });
+
+        mostrarNotificacion(`🖨️ Abriendo diálogo de impresión (${e.copias} copia${e.copias > 1 ? 's' : ''})`, 'info');
+
+    } catch (error) {
+        console.error('❌ Error al imprimir:', error);
+        mostrarNotificacion('❌ Error al imprimir: ' + error.message, 'error');
+    }
+}
+
+/**
+ * Genera el HTML de una etiqueta individual (68 × 80 mm) para impresión.
+ */
+function renderizarEtiquetaParaImpresion(e, producto) {
+    const columnas = e.idiomas.map(idioma => {
+        const t = TEXTOS_I18N[idioma];
+        const ing = producto[`ingredientes${idioma.toUpperCase()}`] || producto.ingredientesES;
+        const aler = producto[`alergenos${idioma.toUpperCase()}`] || producto.alergenosES;
+        const nut = producto.nutricional;
+
+        return `
+            <div class="columna">
+                <div class="nombre-producto">${escaparHTML(producto.nombre).toUpperCase()}</div>
+                <div class="fechas">
+                    <strong>${t.fechaElaboracion}:</strong> ${formatearFechaEtiqueta(e.fechaProduccion)}<br>
+                    <strong>${t.consumoPreferente}:</strong> ${formatearFechaEtiqueta(e.fechaCaducidad)}
+                </div>
+                <div class="titulo-seccion">${t.ingredientes}:</div>
+                <div class="texto">${escaparHTML(ing)}</div>
+                <div class="alergenos">${escaparHTML(aler)}</div>
+                <div class="titulo-seccion">${t.infoNutricional}</div>
+                <div class="texto">
+                    <em>${t.valorMedio}</em><br>
+                    ${t.energia}: ${nut.energiaKJ} KJ / ${nut.energiaKcal} kcal<br>
+                    ${t.grasas}: ${nut.grasas}g<br>
+                    ${t.grasasSaturadas}: ${nut.grasasSaturadas}g<br>
+                    ${t.hidratos}: ${nut.hidratos}g<br>
+                    ${t.azucares}: ${nut.azucares}g<br>
+                    ${t.proteinas}: ${nut.proteinas}g<br>
+                    ${t.sal}: ${nut.sal}g
+                </div>
+                <div class="titulo-seccion">${t.conservacion}:</div>
+                <div class="texto">${TEXTOS_CONSERVACION[idioma]}</div>
+                <div class="titulo-seccion">${t.elaboracao}:</div>
+                <div class="texto">${TEXTOS_ELABORACION[idioma]}</div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="etiqueta">
+            <style>
+                .etiqueta {
+                    width: ${ETIQUETA_ANCHO_MM}mm;
+                    height: ${ETIQUETA_ALTO_MM}mm;
+                    padding: ${MARGEN_MM}mm;
+                    display: flex;
+                    flex-direction: column;
+                    font-size: 5pt;
+                    line-height: 1.15;
+                }
+                .cabecera {
+                    font-size: 6pt;
+                    font-weight: bold;
+                    color: #F7941E;
+                    text-align: center;
+                    border-bottom: 0.5pt solid #F7941E;
+                    padding-bottom: 1mm;
+                }
+                .subcabecera {
+                    font-size: 4.5pt;
+                    text-align: center;
+                    margin-bottom: 1mm;
+                }
+                .cuerpo {
+                    flex: 1;
+                    display: flex;
+                    overflow: hidden;
+                }
+                .columna {
+                    flex: 1;
+                    padding: 0 1mm;
+                    overflow: hidden;
+                }
+                .columna + .columna {
+                    border-left: 0.3pt solid #ccc;
+                }
+                .nombre-producto {
+                    font-weight: bold;
+                    text-align: center;
+                    font-size: 6pt;
+                    margin-bottom: 1mm;
+                }
+                .fechas {
+                    font-size: 4.5pt;
+                    margin-bottom: 1mm;
+                }
+                .titulo-seccion {
+                    font-weight: bold;
+                    font-size: 5pt;
+                    margin-top: 0.5mm;
+                }
+                .texto {
+                    font-size: 4pt;
+                    line-height: 1.15;
+                    margin-bottom: 0.5mm;
+                }
+                .alergenos {
+                    font-weight: bold;
+                    font-size: 4pt;
+                    color: #C00;
+                    margin: 0.5mm 0;
+                }
+                .pie {
+                    font-size: 4pt;
+                    text-align: center;
+                    border-top: 0.3pt solid #ccc;
+                    padding-top: 0.5mm;
+                    margin-top: 1mm;
+                    color: #666;
+                }
+            </style>
+            <div class="cabecera">
+                🍕 QUALITY PIZZAFRESH · ${DATOS_OPERADOR.razonSocial}
+            </div>
+            <div class="subcabecera">
+                RGSEAA: ${DATOS_OPERADOR.rgseaa} · LOTE: <strong>${escaparHTML(e.lote)}</strong>
+            </div>
+            <div class="cuerpo">
+                ${columnas}
+            </div>
+            <div class="pie">
+                ${DATOS_OPERADOR.direccion} · ${DATOS_OPERADOR.paisOrigen}
+            </div>
+        </div>
+    `;
+}
+
+// ============================================================
+// 10. DIBUJAR ETIQUETA EN PDF (68 × 80 mm)
+// ============================================================
+
+function dibujarEtiquetaEnPDF(doc, x, y, e, producto) {
+    const W = ETIQUETA_ANCHO_MM;
+    const H = ETIQUETA_ALTO_MM;
+    const M = MARGEN_MM;
+    const interiorW = W - 2 * M;
+    const numIdiomas = e.idiomas.length;
+    const anchoColumna = interiorW / numIdiomas;
+
+    let cursorY = y + M;
+
+    // --- Cabecera ---
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(247, 148, 30);
+    doc.text('QUALITY PIZZAFRESH · ' + DATOS_OPERADOR.razonSocial, x + W / 2, cursorY, { align: 'center', maxWidth: interiorW });
+    cursorY += 2.5;
+    doc.setFontSize(4.5);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+    doc.text('RGSEAA: ' + DATOS_OPERADOR.rgseaa, x + W / 2, cursorY, { align: 'center', maxWidth: interiorW });
+    cursorY += 1;
+    doc.setDrawColor(247, 148, 30);
+    doc.line(x + M, cursorY, x + W - M, cursorY);
+    cursorY += 1.5;
+
+    // --- Lote ---
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5);
+    doc.text('LOTE: ' + e.lote, x + W / 2, cursorY, { align: 'center', maxWidth: interiorW });
+    cursorY += 2;
+
+    // --- Columnas por idioma ---
+    e.idiomas.forEach((idioma, idx) => {
+        const colX = x + M + (idx * anchoColumna);
+        const colAncho = anchoColumna - 0.5;
+        const t = TEXTOS_I18N[idioma];
+        const ing = producto[`ingredientes${idioma.toUpperCase()}`] || producto.ingredientesES;
+        const aler = producto[`alergenos${idioma.toUpperCase()}`] || producto.alergenosES;
+        const nut = producto.nutricional;
+
+        let cy = cursorY;
+
+        if (idx > 0) {
+            doc.setDrawColor(220, 220, 220);
+            doc.setLineWidth(0.05);
+            doc.line(colX - 0.25, cursorY - 1, colX - 0.25, y + H - M - 6);
+        }
+
+        // Nombre producto
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5);
+        doc.text(producto.nombre.toUpperCase(), colX + colAncho / 2, cy, { align: 'center', maxWidth: colAncho });
+        cy += 2.5;
+
+        // Fechas
+        doc.setFontSize(4);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`${t.fechaElaboracion}: ${formatearFechaEtiqueta(e.fechaProduccion)}`, colX, cy, { maxWidth: colAncho });
+        cy += 1.8;
+        doc.text(`${t.consumoPreferente}: ${formatearFechaEtiqueta(e.fechaCaducidad)}`, colX, cy, { maxWidth: colAncho });
+        cy += 2.2;
+
+        // Ingredientes
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(4);
+        doc.text(t.ingredientes + ':', colX, cy, { maxWidth: colAncho });
+        cy += 1.6;
+        doc.setFont('helvetica', 'normal');
+        const lineasIng = doc.splitTextToSize(ing, colAncho);
+        doc.text(lineasIng.slice(0, 4), colX, cy);
+        cy += Math.min(lineasIng.length, 4) * 1.4 + 1;
+
+        // Alérgenos
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(200, 0, 0);
+        const lineasAler = doc.splitTextToSize(aler, colAncho);
+        doc.text(lineasAler.slice(0, 3), colX, cy);
+        cy += Math.min(lineasAler.length, 3) * 1.4 + 1;
+        doc.setTextColor(0, 0, 0);
+
+        // Nutricional
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(4);
+        doc.text(t.infoNutricional, colX, cy, { maxWidth: colAncho });
+        cy += 1.6;
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(3.5);
+        doc.text(t.valorMedio, colX, cy, { maxWidth: colAncho });
+        cy += 1.4;
+        doc.setFont('helvetica', 'normal');
+
+        const nutricional = [
+            `${t.energia}: ${nut.energiaKJ}KJ/${nut.energiaKcal}kcal`,
+            `${t.grasas}: ${nut.grasas}g`,
+            `${t.grasasSaturadas}: ${nut.grasasSaturadas}g`,
+            `${t.hidratos}: ${nut.hidratos}g`,
+            `${t.azucares}: ${nut.azucares}g`,
+            `${t.proteinas}: ${nut.proteinas}g`,
+            `${t.sal}: ${nut.sal}g`
+        ];
+        nutricional.forEach(linea => {
+            doc.text(linea, colX, cy, { maxWidth: colAncho });
+            cy += 1.4;
+        });
+        cy += 0.5;
+
+        // Conservación
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(4);
+        doc.text(t.conservacion + ':', colX, cy, { maxWidth: colAncho });
+        cy += 1.4;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(3.5);
+        doc.text(TEXTOS_CONSERVACION[idioma], colX, cy, { maxWidth: colAncho });
+        cy += 1.6;
+
+        // Elaboración
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(4);
+        doc.text(t.elaboracao + ':', colX, cy, { maxWidth: colAncho });
+        cy += 1.4;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(3.5);
+        doc.text(TEXTOS_ELABORACION[idioma], colX, cy, { maxWidth: colAncho });
+    });
+
+    // --- Pie ---
+    const pieY = y + H - M - 2;
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.05);
+    doc.line(x + M, pieY - 1, x + W - M, pieY - 1);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(3.5);
+    doc.setTextColor(120, 120, 120);
+    doc.text(`${DATOS_OPERADOR.direccion} · ${DATOS_OPERADOR.paisOrigen}`, x + W / 2, pieY + 0.8, { align: 'center', maxWidth: interiorW });
+}
+
+// ============================================================
+// 11. ACCIONES DEL HISTORIAL
+// ============================================================
+
+function reimprimirDesdeHistorial(idx) {
+    const datos = cargarDatos();
+    const historial = obtenerHistorialEtiquetas(datos);
+    const entrada = historial[idx];
+    if (!entrada) return;
+
+    estadoFormularioEtiqueta = {
+        productoId: entrada.productoId,
+        clienteId: null,
+        lote: entrada.lote,
+        fechaProduccion: entrada.fechaProduccion,
+        fechaCaducidad: entrada.fechaCaducidad,
+        idiomas: [...entrada.idiomas],
+        copias: entrada.copias
+    };
+
+    renderizarEtiquetas();
+    mostrarNotificacion('📄 Etiqueta cargada. Revisa y pulsa 🖨️ o 📄.', 'info');
+}
+
+function eliminarEntradaHistorial(idx) {
+    if (!confirm('⚠️ ¿Eliminar esta entrada del historial?')) return;
+    const datos = cargarDatos();
+    const historial = obtenerHistorialEtiquetas(datos);
+    historial.splice(idx, 1);
+    guardarDatos(datos);
+    renderizarEtiquetas();
+    mostrarNotificacion('✅ Entrada eliminada', 'success');
+}
+
+function limpiarHistorialEtiquetas() {
+    if (!confirm('⚠️ ¿Eliminar TODO el historial de etiquetas?')) return;
+    const datos = cargarDatos();
+    datos[CLAVE_HISTORIAL_ETIQUETAS] = [];
+    guardarDatos(datos);
+    renderizarEtiquetas();
+    mostrarNotificacion('✅ Historial limpiado', 'success');
+}

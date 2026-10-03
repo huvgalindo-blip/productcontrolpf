@@ -5,6 +5,7 @@
  * Responsabilidades:
  *   - Consultas de productos (activos, precios, búsqueda)
  *   - CRUD de productos (crear, editar, activar, desactivar)
+ *   - Ficha técnica editable (ingredientes, alérgenos, nutricional)
  *   - Renderizado de la vista de Productos
  * 
  * Dependencias: datos.js, utilidades.js
@@ -15,34 +16,20 @@
 // 1. CONSULTAS DE PRODUCTOS
 // ============================================================
 
-/**
- * Devuelve solo los productos activos.
- */
 function obtenerProductosActivos(datos) {
     return datos.productos.filter(p => p.activo === true);
 }
 
-/**
- * Devuelve el precio de venta de un producto por nombre.
- * Si no existe o está inactivo, devuelve 0.
- */
 function obtenerPrecioVenta(datos, nombre) {
     const p = datos.productos.find(x => x.nombre === nombre && x.activo);
     return p ? p.precioVenta : 0;
 }
 
-/**
- * Devuelve el precio de coste de un producto por nombre.
- * Si no existe o está inactivo, devuelve 0.
- */
 function obtenerPrecioCosto(datos, nombre) {
     const p = datos.productos.find(x => x.nombre === nombre && x.activo);
     return p ? p.precioCosto : 0;
 }
 
-/**
- * Busca un producto activo por nombre exacto.
- */
 function obtenerProductoPorNombre(datos, nombre) {
     return datos.productos.find(p => p.nombre === nombre && p.activo) || null;
 }
@@ -51,9 +38,6 @@ function obtenerProductoPorNombre(datos, nombre) {
 // 2. RENDERIZADO DE LA VISTA PRODUCTOS
 // ============================================================
 
-/**
- * Renderiza la vista completa de productos en #vista-container.
- */
 function renderizarProductos() {
     const container = document.getElementById('vista-container');
     const datos = cargarDatos();
@@ -134,6 +118,7 @@ function renderizarProductos() {
                         </span>
                     </td>
                     <td>
+                        <button class="btn btn-info btn-sm" onclick="editarFichaTecnicaProducto(${producto.id})" title="Ficha técnica (ingredientes, alérgenos, nutricional)" style="background: #17a2b8; color: white;">📋</button>
                         <button class="btn btn-secondary btn-sm" onclick="editarProducto(${producto.id})" title="Editar">✏️</button>
                         ${producto.activo
                             ? `<button class="btn btn-danger btn-sm" onclick="eliminarProducto(${producto.id})" title="Desactivar">🗑️</button>`
@@ -178,9 +163,6 @@ function cerrarFormularioProducto() {
 // 4. CRUD DE PRODUCTOS
 // ============================================================
 
-/**
- * Guarda (crea o actualiza) un producto según el campo oculto editando-id.
- */
 function guardarProducto() {
     const nombre = document.getElementById('producto-nombre').value.trim();
     const precioCosto = aDecimal(document.getElementById('producto-precioCosto').value);
@@ -196,7 +178,6 @@ function guardarProducto() {
     const datos = cargarDatos();
 
     if (editandoId) {
-        // Editar producto existente
         const producto = datos.productos.find(p => p.id === parseInt(editandoId));
         if (producto) {
             const duplicado = datos.productos.find(
@@ -214,7 +195,6 @@ function guardarProducto() {
             mostrarNotificacion('✅ Producto actualizado correctamente', 'success');
         }
     } else {
-        // Crear nuevo producto
         const duplicado = datos.productos.find(p => p.nombre.toLowerCase() === nombre.toLowerCase());
         if (duplicado) {
             mostrarNotificacion('❌ El nombre ya está en uso', 'error');
@@ -237,9 +217,6 @@ function guardarProducto() {
     renderizarProductos();
 }
 
-/**
- * Carga un producto en el formulario para editarlo.
- */
 function editarProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);
@@ -257,9 +234,6 @@ function editarProducto(id) {
     document.getElementById('producto-nombre').focus();
 }
 
-/**
- * Desactiva un producto (no lo borra).
- */
 function eliminarProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);
@@ -273,9 +247,6 @@ function eliminarProducto(id) {
     mostrarNotificacion(`✅ Producto "${producto.nombre}" desactivado`, 'success');
 }
 
-/**
- * Reactiva un producto desactivado.
- */
 function reactivarProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);
@@ -285,4 +256,138 @@ function reactivarProducto(id) {
     guardarDatos(datos);
     renderizarProductos();
     mostrarNotificacion(`✅ Producto "${producto.nombre}" reactivado`, 'success');
+}
+
+// ============================================================
+// 5. FICHA TÉCNICA DEL PRODUCTO
+// ============================================================
+// La ficha técnica incluye:
+//   - Peso neto y formato
+//   - Ingredientes en 4 idiomas (ES, PT, FR, EN)
+//   - Alérgenos en 4 idiomas
+//   - Información nutricional (por 100 g)
+// Se usa en el módulo de etiquetas para generar la info legal.
+// ============================================================
+
+/**
+ * Abre el editor de ficha técnica del producto.
+ * Permite editar ingredientes, alérgenos y nutricional.
+ * Los cambios se guardan directamente en el producto.
+ */
+function editarFichaTecnicaProducto(id) {
+    const datos = cargarDatos();
+    const producto = datos.productos.find(p => p.id === id);
+    if (!producto) {
+        mostrarNotificacion('❌ Producto no encontrado', 'error');
+        return;
+    }
+
+    // Valores por defecto (Hermanos Viudes S.L.)
+    const defecto = {
+        pesoNeto: '',
+        formato: '',
+        ingredientesES: 'Harina de trigo (gluten), agua, sal, levadura, aceite de oliva.',
+        ingredientesPT: 'Farinha de trigo (glúten), água, sal, fermento, azeite de oliva.',
+        ingredientesFR: 'Farine de blé (gluten), eau, sel, levure, huile d\'olive.',
+        ingredientesEN: 'Wheat flour (gluten), water, salt, yeast, olive oil.',
+        alergenosES: 'SOJA Y MOSTARDA (No presente en la formulación, pero no se puede descartar por contaminación cruzada).',
+        alergenosPT: 'SOJA E MOSTARDA (Presentes na formulação, mas não podem ser descartadas devido à contaminação cruzada).',
+        alergenosFR: 'SOJA ET MOUTARDE (Non présents dans la formulation, mais ne peuvent être exclus en raison d\'une contamination croisée).',
+        alergenosEN: 'SOY AND MUSTARD (Not present in the formulation, but cannot be ruled out due to cross-contamination).',
+        nutricional: {
+            energiaKJ: 1160,
+            energiaKcal: 274,
+            grasas: 4.3,
+            grasasSaturadas: 1.2,
+            hidratos: 50,
+            azucares: 0.5,
+            proteinas: 8.6,
+            sal: 1.5
+        }
+    };
+
+    // Combinar valores actuales del producto con los por defecto
+    const ficha = {
+        pesoNeto: producto.pesoNeto || defecto.pesoNeto,
+        formato: producto.formato || defecto.formato,
+        ingredientesES: producto.ingredientesES || defecto.ingredientesES,
+        ingredientesPT: producto.ingredientesPT || defecto.ingredientesPT,
+        ingredientesFR: producto.ingredientesFR || defecto.ingredientesFR,
+        ingredientesEN: producto.ingredientesEN || defecto.ingredientesEN,
+        alergenosES: producto.alergenosES || defecto.alergenosES,
+        alergenosPT: producto.alergenosPT || defecto.alergenosPT,
+        alergenosFR: producto.alergenosFR || defecto.alergenosFR,
+        alergenosEN: producto.alergenosEN || defecto.alergenosEN,
+        nutricional: producto.nutricional || { ...defecto.nutricional }
+    };
+
+    // --- 1. Datos generales ---
+    const pesoNeto = prompt('📦 Peso neto (ej: 100 g):', ficha.pesoNeto);
+    if (pesoNeto === null) return;
+    const formato = prompt('📐 Formato (ej: Single 100 g):', ficha.formato);
+    if (formato === null) return;
+
+    // --- 2. Ingredientes por idioma ---
+    const ingredientesES = prompt('🥣 Ingredientes (ES):', ficha.ingredientesES);
+    if (ingredientesES === null) return;
+    const ingredientesPT = prompt('🥣 Ingredientes (PT):', ficha.ingredientesPT);
+    if (ingredientesPT === null) return;
+    const ingredientesFR = prompt('🥣 Ingredientes (FR):', ficha.ingredientesFR);
+    if (ingredientesFR === null) return;
+    const ingredientesEN = prompt('🥣 Ingredientes (EN):', ficha.ingredientesEN);
+    if (ingredientesEN === null) return;
+
+    // --- 3. Alérgenos por idioma ---
+    const alergenosES = prompt('⚠️ Alérgenos (ES):', ficha.alergenosES);
+    if (alergenosES === null) return;
+    const alergenosPT = prompt('⚠️ Alérgenos (PT):', ficha.alergenosPT);
+    if (alergenosPT === null) return;
+    const alergenosFR = prompt('⚠️ Alérgenos (FR):', ficha.alergenosFR);
+    if (alergenosFR === null) return;
+    const alergenosEN = prompt('⚠️ Alérgenos (EN):', ficha.alergenosEN);
+    if (alergenosEN === null) return;
+
+    // --- 4. Información nutricional (por 100 g) ---
+    const energiaKJ = prompt('🔥 Energía (KJ) por 100g:', ficha.nutricional.energiaKJ);
+    if (energiaKJ === null) return;
+    const energiaKcal = prompt('🔥 Energía (kcal) por 100g:', ficha.nutricional.energiaKcal);
+    if (energiaKcal === null) return;
+    const grasas = prompt('🧈 Grasas (g) por 100g:', ficha.nutricional.grasas);
+    if (grasas === null) return;
+    const grasasSaturadas = prompt('🧈 Grasas saturadas (g) por 100g:', ficha.nutricional.grasasSaturadas);
+    if (grasasSaturadas === null) return;
+    const hidratos = prompt('🍞 Hidratos de carbono (g) por 100g:', ficha.nutricional.hidratos);
+    if (hidratos === null) return;
+    const azucares = prompt('🍯 Azúcares (g) por 100g:', ficha.nutricional.azucares);
+    if (azucares === null) return;
+    const proteinas = prompt('💪 Proteínas (g) por 100g:', ficha.nutricional.proteinas);
+    if (proteinas === null) return;
+    const sal = prompt('🧂 Sal (g) por 100g:', ficha.nutricional.sal);
+    if (sal === null) return;
+
+    // --- 5. Guardar cambios en el producto ---
+    producto.pesoNeto = pesoNeto.trim();
+    producto.formato = formato.trim();
+    producto.ingredientesES = ingredientesES.trim();
+    producto.ingredientesPT = ingredientesPT.trim();
+    producto.ingredientesFR = ingredientesFR.trim();
+    producto.ingredientesEN = ingredientesEN.trim();
+    producto.alergenosES = alergenosES.trim();
+    producto.alergenosPT = alergenosPT.trim();
+    producto.alergenosFR = alergenosFR.trim();
+    producto.alergenosEN = alergenosEN.trim();
+    producto.nutricional = {
+        energiaKJ: parseFloat(energiaKJ) || 0,
+        energiaKcal: parseFloat(energiaKcal) || 0,
+        grasas: parseFloat(grasas) || 0,
+        grasasSaturadas: parseFloat(grasasSaturadas) || 0,
+        hidratos: parseFloat(hidratos) || 0,
+        azucares: parseFloat(azucares) || 0,
+        proteinas: parseFloat(proteinas) || 0,
+        sal: parseFloat(sal) || 0
+    };
+
+    guardarDatos(datos);
+    mostrarNotificacion(`✅ Ficha técnica de "${producto.nombre}" actualizada`, 'success');
+    renderizarProductos();
 }

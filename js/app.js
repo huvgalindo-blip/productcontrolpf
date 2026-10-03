@@ -17,7 +17,7 @@
 // VERSIÓN DE LA APP
 // ============================================================
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 // ============================================================
 // INICIALIZACIÓN
@@ -43,6 +43,8 @@ function inicializarApp() {
         'configurarEventos',
         'renderizarProduccion',
         'renderizarOrdenAmasado',
+        'renderizarCalculadoraMasa',
+        'renderizarEtiquetas',
         'renderizarClientes',
         'renderizarProductos',
         'renderizarDashboard',
@@ -81,8 +83,18 @@ function inicializarApp() {
         console.log(`   • Productos: ${datos.productos.length}`);
         console.log(`   • Días de producción: ${Object.keys(datos.produccion || {}).length}`);
         console.log(`   • Órdenes de amasado: ${Object.keys(datos.ordenesAmasado || {}).length}`);
+        console.log(`   • Recetas de masa: ${Object.keys(datos.recetasMasa || {}).length}`);
+        console.log(`   • Etiquetas generadas: ${(datos.historialEtiquetas || []).length}`);
     } catch (error) {
         console.error('❌ Error al cargar datos iniciales:', error);
+    }
+
+    // --- Verificar jsPDF (para el módulo de etiquetas) ---
+    const jspdfCargado = typeof window.jspdf !== 'undefined' || typeof window.jsPDF !== 'undefined';
+    if (!jspdfCargado) {
+        console.warn('⚠️ jsPDF no está cargado. El generador de etiquetas no podrá crear PDFs.');
+    } else {
+        console.log('✅ jsPDF cargado correctamente');
     }
 
     // --- Configurar eventos globales (nav, teclas, menú) ---
@@ -98,9 +110,10 @@ function inicializarApp() {
     console.log('   • Ctrl+1 → Producción');
     console.log('   • Ctrl+2 → Dashboard');
     console.log('   • Ctrl+3 → Amasado');
-    console.log('   • Ctrl+4 → Clientes');
-    console.log('   • Ctrl+5 → Productos');
-    console.log('   • Ctrl+6 → Configuración');
+    console.log('   • Ctrl+4 → Etiquetas');
+    console.log('   • Ctrl+5 → Clientes');
+    console.log('   • Ctrl+6 → Productos');
+    console.log('   • Ctrl+7 → Configuración');
     console.log('   • Esc    → Cerrar formularios');
     console.log('');
 }

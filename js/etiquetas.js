@@ -1,21 +1,17 @@
 /**
  * ============================================================
- * MÓDULO: ETIQUETAS
+ * MÓDULO: ETIQUETAS (v8)
  * ============================================================
- * Responsabilidades:
- *   - Generador de etiquetas reglamentarias UE
- *   - Formato seleccionable: Horizontal (80×68 mm) o Vertical (68×80 mm)
- *   - Idioma único seleccionable (ES obligatorio UE, PT/FR/EN opcionales)
- *   - Auto-selección de idioma según país del cliente
- *   - Cálculo automático de lote y fecha de caducidad
- *   - Datos reales: Hermanos Viudes S.L. + RGSEAA
- *   - Ficha técnica por producto (ingredientes, alérgenos, nutricional)
- *   - Vista previa en vivo
- *   - Generación de PDF con logo embebido
- *   - Impresión directa para impresora térmica
- *   - Márgenes de seguridad para evitar cortes en térmica
- *   - Historial de últimas 50 etiquetas
- * 
+ * Cambios v8:
+ *   - Formato por defecto: VERTICAL 68×80 mm
+ *   - Márgenes de seguridad: 4 mm exactos por lado
+ *   - Alérgenos en NEGRITA (térmica B/N, sin color)
+ *   - Nutrición en TABLA 2 columnas (Nutriente | Valor)
+ *   - Cabecera de impresión en negro puro (térmica)
+ *   - PDF: tabla nutricional dibujada (no se solapa)
+ *   - Logo se imprime si carga (fallback texto)
+ *
+ * Impresora: Zebra ZD420 (térmica B/N)
  * Dependencias: datos.js, utilidades.js, productos.js, clientes.js
  * Librería externa: jsPDF
  * ============================================================
@@ -28,27 +24,21 @@
 const CLAVE_HISTORIAL_ETIQUETAS = 'historialEtiquetas';
 const MAX_HISTORIAL_ETIQUETAS = 50;
 
-// URL del logo de la marca
 const URL_LOGO = 'https://qualitypizzafresh.com/img/cms/LOGOTIPO_QUALITY_PIZZAFRESH_1.png';
 
-// Caché global del logo en base64 (evita recargarlo en cada PDF)
 let logoBase64Cache = null;
 
-// Formatos de etiqueta disponibles (mm)
 const FORMATOS_ETIQUETA = {
     horizontal: { ancho: 80, alto: 68, etiqueta: '🖨️ Horizontal (80 × 68 mm)' },
     vertical:   { ancho: 68, alto: 80, etiqueta: '🖨️ Vertical (68 × 80 mm)' }
 };
 
-const FORMATO_DEFECTO = 'horizontal';
+const FORMATO_DEFECTO = 'vertical';
 
-// Márgenes de seguridad para impresora térmica
-// La mayoría de térmicas tienen 2-3 mm de zona no imprimible
-const MARGEN_EXTERIOR_MM = 3;      // Margen desde el borde físico
-const MARGEN_INTERNO_MM = 1.5;     // Aire extra alrededor del texto
-const MARGEN_TOTAL_MM = MARGEN_EXTERIOR_MM + MARGEN_INTERNO_MM;  // = 4.5 mm
+const MARGEN_EXTERIOR_MM = 4;
+const MARGEN_INTERNO_MM = 0;
+const MARGEN_TOTAL_MM = MARGEN_EXTERIOR_MM + MARGEN_INTERNO_MM;
 
-// Datos fijos del operador
 const DATOS_OPERADOR = {
     razonSocial: 'Hermanos Viudes S.L.',
     rgseaa: '20.044822/A',
@@ -56,23 +46,13 @@ const DATOS_OPERADOR = {
     paisOrigen: 'España'
 };
 
-// Mapeo país → idioma único
 const MAPEO_PAIS_IDIOMA = {
-    'España': 'es',
-    'Portugal': 'pt',
-    'Francia': 'fr',
-    'Reino Unido': 'en',
-    'Alemania': 'en',
-    'Italia': 'en',
-    'Países Bajos': 'en',
-    'Bélgica': 'fr',
-    'Irlanda': 'en',
-    'Suiza': 'fr',
-    'Andorra': 'fr',
-    'Otros': 'en'
+    'España': 'es', 'Portugal': 'pt', 'Francia': 'fr',
+    'Reino Unido': 'en', 'Alemania': 'en', 'Italia': 'en',
+    'Países Bajos': 'en', 'Bélgica': 'fr', 'Irlanda': 'en',
+    'Suiza': 'fr', 'Andorra': 'fr', 'Otros': 'en'
 };
 
-// Idiomas soportados
 const IDIOMAS_DISPONIBLES = [
     { codigo: 'es', nombre: '🇪🇸 Español (obligatorio UE)' },
     { codigo: 'pt', nombre: '🇵🇹 Portugués' },
@@ -80,75 +60,45 @@ const IDIOMAS_DISPONIBLES = [
     { codigo: 'en', nombre: '🇬🇧 Inglés' }
 ];
 
-// Textos i18n
 const TEXTOS_I18N = {
     es: {
-        fechaElaboracion: 'Fecha Elaboración',
-        consumoPreferente: 'Consumo preferente',
-        ingredientes: 'INGREDIENTES',
-        infoNutricional: 'INFORMACIÓN NUTRICIONAL',
-        valorMedio: 'Valor medio 100g',
-        conservacion: 'CONSERVACIÓN',
-        elaboracion: 'ELABORACIÓN',
-        energia: 'V. energético',
-        grasas: 'Grasas',
-        grasasSaturadas: 'G. saturadas',
-        hidratos: 'H. carbono',
-        azucares: 'Azúcares',
-        proteinas: 'Proteínas',
-        sal: 'Sal'
+        fechaElaboracion: 'Fecha Elaboración', consumoPreferente: 'Consumo preferente',
+        ingredientes: 'INGREDIENTES', alergenos: 'ALÉRGENOS',
+        infoNutricional: 'INFORMACIÓN NUTRICIONAL', valorMedio: 'Valor medio 100g',
+        conservacion: 'CONSERVACIÓN', elaboracion: 'ELABORACIÓN',
+        energia: 'V. energético', grasas: 'Grasas', grasasSaturadas: 'G. saturadas',
+        hidratos: 'H. carbono', azucares: 'Azúcares', proteinas: 'Proteínas', sal: 'Sal',
+        colNutriente: 'Nutriente', colValor: 'Valor'
     },
     pt: {
-        fechaElaboracion: 'Data de elaboração',
-        consumoPreferente: 'Melhor antes da data',
-        ingredientes: 'INGREDIENTES',
-        infoNutricional: 'INFORMAÇÃO NUTRICIONAL',
-        valorMedio: 'Valor médio 100g',
-        conservacion: 'CONSERVAÇÃO',
-        elaboracion: 'ELABORAÇÃO',
-        energia: 'V. energético',
-        grasas: 'Gorduras',
-        grasasSaturadas: 'G. saturadas',
-        hidratos: 'H. carbono',
-        azucares: 'Açúcares',
-        proteinas: 'Proteínas',
-        sal: 'Sal'
+        fechaElaboracion: 'Data de elaboração', consumoPreferente: 'Melhor antes da data',
+        ingredientes: 'INGREDIENTES', alergenos: 'ALERGÉNIOS',
+        infoNutricional: 'INFORMAÇÃO NUTRICIONAL', valorMedio: 'Valor médio 100g',
+        conservacion: 'CONSERVAÇÃO', elaboracion: 'ELABORAÇÃO',
+        energia: 'V. energético', grasas: 'Gorduras', grasasSaturadas: 'G. saturadas',
+        hidratos: 'H. carbono', azucares: 'Açúcares', proteinas: 'Proteínas', sal: 'Sal',
+        colNutriente: 'Nutriente', colValor: 'Valor'
     },
     fr: {
-        fechaElaboracion: 'Date d\'élaboration',
-        consumoPreferente: 'À consommer de préférence',
-        ingredientes: 'INGRÉDIENTS',
-        infoNutricional: 'INFORMATIONS NUTRITIONNELLES',
-        valorMedio: 'Valeur moyenne 100g',
-        conservacion: 'CONSERVATION',
-        elaboracion: 'ÉLABORATION',
-        energia: 'V. énergétique',
-        grasas: 'Mat. grasses',
-        grasasSaturadas: 'dont AG sat.',
-        hidratos: 'Glucides',
-        azucares: 'dont sucres',
-        proteinas: 'Protéines',
-        sal: 'Sel'
+        fechaElaboracion: 'Date d\'élaboration', consumoPreferente: 'À consommer de préférence',
+        ingredientes: 'INGRÉDIENTS', alergenos: 'ALLERGÈNES',
+        infoNutricional: 'INFORMATIONS NUTRITIONNELLES', valorMedio: 'Valeur moyenne 100g',
+        conservacion: 'CONSERVATION', elaboracion: 'ÉLABORATION',
+        energia: 'V. énergétique', grasas: 'Mat. grasses', grasasSaturadas: 'dont AG sat.',
+        hidratos: 'Glucides', azucares: 'dont sucres', proteinas: 'Protéines', sal: 'Sel',
+        colNutriente: 'Nutriment', colValor: 'Valeur'
     },
     en: {
-        fechaElaboracion: 'Production date',
-        consumoPreferente: 'Best before',
-        ingredientes: 'INGREDIENTS',
-        infoNutricional: 'NUTRITIONAL INFORMATION',
-        valorMedio: 'Average value 100g',
-        conservacion: 'STORAGE',
-        elaboracion: 'COOKING',
-        energia: 'Energy',
-        grasas: 'Fat',
-        grasasSaturadas: 'Saturates',
-        hidratos: 'Carbohydrate',
-        azucares: 'Sugars',
-        proteinas: 'Protein',
-        sal: 'Salt'
+        fechaElaboracion: 'Production date', consumoPreferente: 'Best before',
+        ingredientes: 'INGREDIENTS', alergenos: 'ALLERGENS',
+        infoNutricional: 'NUTRITIONAL INFORMATION', valorMedio: 'Average value 100g',
+        conservacion: 'STORAGE', elaboracion: 'COOKING',
+        energia: 'Energy', grasas: 'Fat', grasasSaturadas: 'Saturates',
+        hidratos: 'Carbohydrate', azucares: 'Sugars', proteinas: 'Protein', sal: 'Salt',
+        colNutriente: 'Nutrient', colValor: 'Value'
     }
 };
 
-// Textos de conservación y elaboración
 const TEXTOS_CONSERVACION = {
     es: 'Mantener refrigeradas entre 0°C y 4°C',
     pt: 'Manter refrigerado entre 0°C e 4°C',
@@ -167,20 +117,13 @@ const TEXTOS_ELABORACION = {
 // 1.1 CARGA DEL LOGO
 // ============================================================
 
-/**
- * Carga el logo desde la URL y lo convierte a base64.
- * Cachea el resultado para no recargarlo en cada generación.
- * Si falla, devuelve null (se usará solo texto).
- */
 async function cargarLogoBase64() {
     if (logoBase64Cache) return logoBase64Cache;
-
     return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = function() {
             try {
-                // Convertir a base64 con canvas
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width;
                 canvas.height = img.height;
@@ -197,7 +140,6 @@ async function cargarLogoBase64() {
             console.warn('No se pudo cargar el logo desde:', URL_LOGO);
             resolve(null);
         };
-        // Timeout de seguridad
         setTimeout(() => resolve(null), 3000);
         img.src = URL_LOGO;
     });
@@ -209,8 +151,7 @@ async function cargarLogoBase64() {
 
 function fichaTecnicaPorDefecto() {
     return {
-        pesoNeto: '',
-        formato: '',
+        pesoNeto: '', formato: '',
         ingredientesES: 'Harina de trigo (gluten), agua, sal, levadura, aceite de oliva.',
         ingredientesPT: 'Farinha de trigo (glúten), água, sal, fermento, azeite de oliva.',
         ingredientesFR: 'Farine de blé (gluten), eau, sel, levure, huile d\'olive.',
@@ -220,14 +161,8 @@ function fichaTecnicaPorDefecto() {
         alergenosFR: 'SOJA ET MOUTARDE (Non présents dans la formulation, mais ne peuvent être exclus en raison d\'une contamination croisée).',
         alergenosEN: 'SOY AND MUSTARD (Not present in the formulation, but cannot be ruled out due to cross-contamination).',
         nutricional: {
-            energiaKJ: 1160,
-            energiaKcal: 274,
-            grasas: 4.3,
-            grasasSaturadas: 1.2,
-            hidratos: 50,
-            azucares: 0.5,
-            proteinas: 8.6,
-            sal: 1.5
+            energiaKJ: 1160, energiaKcal: 274, grasas: 4.3, grasasSaturadas: 1.2,
+            hidratos: 50, azucares: 0.5, proteinas: 8.6, sal: 1.5
         }
     };
 }
@@ -264,7 +199,7 @@ function migrarProductosConFichaTecnica(datos) {
 }
 
 // ============================================================
-// 2. HISTORIAL DE ETIQUETAS
+// 2. HISTORIAL
 // ============================================================
 
 function obtenerHistorialEtiquetas(datos) {
@@ -291,9 +226,7 @@ function añadirAlHistorialEtiquetas(datos, entrada) {
 function generarLoteAutomatico(datos, fecha) {
     const fechaStr = (fecha || obtenerFechaActual()).replace(/-/g, '');
     const historial = obtenerHistorialEtiquetas(datos);
-    const lotesHoy = historial.filter(e =>
-        e.lote && e.lote.includes(`L-${fechaStr}-`)
-    ).length;
+    const lotesHoy = historial.filter(e => e.lote && e.lote.includes(`L-${fechaStr}-`)).length;
     const secuencial = String(lotesHoy + 1).padStart(3, '0');
     return `L-${fechaStr}-${secuencial}`;
 }
@@ -337,10 +270,7 @@ function inicializarEstadoFormulario() {
     const diasCaducidad = datos.configuracion.diasCaducidad || 19;
 
     estadoFormularioEtiqueta = {
-        productoId: null,
-        clienteId: null,
-        formato: FORMATO_DEFECTO,
-        idioma: 'es',
+        productoId: null, clienteId: null, formato: FORMATO_DEFECTO, idioma: 'es',
         lote: generarLoteAutomatico(datos, fechaHoy),
         fechaProduccion: fechaHoy,
         fechaCaducidad: calcularFechaCaducidad(fechaHoy, diasCaducidad),
@@ -361,15 +291,12 @@ function renderizarEtiquetas() {
             let datos = cargarDatos();
             datos.productos = migrarProductosConFichaTecnica(datos);
 
-            if (!estadoFormularioEtiqueta) {
-                inicializarEstadoFormulario();
-            }
+            if (!estadoFormularioEtiqueta) inicializarEstadoFormulario();
 
             const productos = obtenerProductosActivos(datos).map(asegurarFichaTecnicaProducto);
             const clientes = obtenerClientesActivos(datos);
             const historial = obtenerHistorialEtiquetas(datos);
 
-            // Precargar logo en segundo plano (no bloquea)
             cargarLogoBase64();
 
             let html = `
@@ -377,7 +304,7 @@ function renderizarEtiquetas() {
                     <div class="vista-header">
                         <div>
                             <h2>🏷️ Generador de Etiquetas</h2>
-                            <span class="subtitle">Etiquetas reglamentarias UE · Impresora térmica</span>
+                            <span class="subtitle">Etiquetas reglamentarias UE · Impresora térmica Zebra ZD420</span>
                         </div>
                         <div class="flex gap-10">
                             <button class="btn btn-primary btn-sm" onclick="imprimirEtiquetaDirecto()" title="Imprimir directamente en la impresora térmica">🖨️ Imprimir</button>
@@ -398,7 +325,7 @@ function renderizarEtiquetas() {
                                     ${renderizarVistaPreviaEtiqueta(datos)}
                                 </div>
                                 <p style="font-size: 0.7rem; color: #999; text-align: center; margin-top: 10px;">
-                                    Vista previa a escala · Márgenes seguros aplicados
+                                    Vista previa a escala · Márgenes seguros ${MARGEN_TOTAL_MM} mm
                                 </p>
                             </div>
                         </div>
@@ -432,7 +359,6 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
     const clienteSeleccionado = clientes.find(c => c.id === e.clienteId);
 
     return `
-        <!-- PRODUCTO Y DESTINO -->
         <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
             <h3 style="margin-bottom: 15px;">📦 Producto y destino</h3>
             <div class="form-row">
@@ -473,7 +399,6 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
             ` : ''}
         </div>
 
-        <!-- FORMATO DE ETIQUETA -->
         <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
             <h3 style="margin-bottom: 15px;">📐 Formato de etiqueta</h3>
             <div class="form-row">
@@ -488,11 +413,10 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
                 </div>
             </div>
             <div style="font-size: 0.75rem; color: #999; margin-top: 5px;">
-                💡 Márgenes de seguridad: ${MARGEN_TOTAL_MM} mm por lado (evita cortes en impresora térmica)
+                💡 Márgenes de seguridad: ${MARGEN_TOTAL_MM} mm por lado (evita cortes en Zebra ZD420)
             </div>
         </div>
 
-        <!-- IDIOMA -->
         <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
             <h3 style="margin-bottom: 15px;">🌍 Idioma de la etiqueta</h3>
             <div class="form-row">
@@ -514,7 +438,6 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
             ` : ''}
         </div>
 
-        <!-- FECHAS Y LOTE -->
         <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
             <h3 style="margin-bottom: 15px;">📅 Fechas y lote</h3>
             <div class="form-row">
@@ -529,13 +452,11 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
                 </div>
                 <div class="form-group">
                     <label>Fecha producción</label>
-                    <input type="date" value="${e.fechaProduccion}"
-                           onchange="actualizarFechaProduccion(this.value)">
+                    <input type="date" value="${e.fechaProduccion}" onchange="actualizarFechaProduccion(this.value)">
                 </div>
                 <div class="form-group">
                     <label>Fecha caducidad</label>
-                    <input type="date" value="${e.fechaCaducidad}"
-                           onchange="actualizarCampoEtiqueta('fechaCaducidad', this.value)">
+                    <input type="date" value="${e.fechaCaducidad}" onchange="actualizarCampoEtiqueta('fechaCaducidad', this.value)">
                 </div>
             </div>
             <div style="font-size: 0.75rem; color: #999;">
@@ -543,7 +464,6 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
             </div>
         </div>
 
-        <!-- COPIAS -->
         <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
             <div class="form-row">
                 <div class="form-group">
@@ -557,7 +477,7 @@ function renderizarFormularioEtiqueta(datos, productos, clientes) {
 }
 
 // ============================================================
-// 6.2 VISTA PREVIA
+// 6.2 VISTA PREVIA (v8: alérgenos negrita + tabla nutricional)
 // ============================================================
 
 function renderizarVistaPreviaEtiqueta(datos) {
@@ -567,28 +487,18 @@ function renderizarVistaPreviaEtiqueta(datos) {
 
     if (!producto) {
         return `
-            <div style="
-                width: 340px;
-                height: 280px;
-                border: 1px dashed #ccc;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #999;
-                font-size: 0.85rem;
-                text-align: center;
-                padding: 20px;
-            ">
+            <div style="width: 340px; height: 280px; border: 1px dashed #ccc;
+                        display: flex; align-items: center; justify-content: center;
+                        color: #999; font-size: 0.85rem; text-align: center; padding: 20px;">
                 Selecciona un producto<br>para ver la vista previa
             </div>
         `;
     }
 
-    const dim = FORMATOS_ETIQUETA[e.formato] || FORMATOS_ETIQUETA.horizontal;
+    const dim = FORMATOS_ETIQUETA[e.formato] || FORMATOS_ETIQUETA.vertical;
     const anchoMM = dim.ancho;
     const altoMM = dim.alto;
 
-    // Escala para que quepa en ~360px
     const escala = Math.min(360 / anchoMM, 360 / altoMM);
     const anchoPx = anchoMM * escala;
     const altoPx = altoMM * escala;
@@ -599,80 +509,89 @@ function renderizarVistaPreviaEtiqueta(datos) {
     const aler = producto[`alergenos${idioma.toUpperCase()}`] || producto.alergenosES;
     const nut = producto.nutricional;
 
-    // Usamos el logo cacheado si está disponible, si no, placeholder de texto
     const logoHTML = logoBase64Cache
         ? `<img src="${logoBase64Cache}" alt="Logo" style="height: ${escala * 6}px; max-width: ${escala * 22}px; object-fit: contain;">`
-        : `<span style="font-size: ${escala * 1.8}px; color: #F7941E; font-weight: bold;">🍕 PIZZAFRESH</span>`;
+        : `<span style="font-size: ${escala * 1.8}px; color: #000; font-weight: bold;">🍕 PIZZAFRESH</span>`;
+
+    const filasNut = [
+        [t.energia, `${nut.energiaKJ}KJ/${nut.energiaKcal}kcal`],
+        [t.grasas, `${nut.grasas}g`],
+        [t.grasasSaturadas, `${nut.grasasSaturadas}g`],
+        [t.hidratos, `${nut.hidratos}g`],
+        [t.azucares, `${nut.azucares}g`],
+        [t.proteinas, `${nut.proteinas}g`],
+        [t.sal, `${nut.sal}g`]
+    ];
+
+    const tablaNutHTML = `
+        <table style="width: 100%; border-collapse: collapse; font-size: ${escala * 1.55}px; line-height: 1.1; margin-top: ${escala * 0.4}px;">
+            <thead>
+                <tr>
+                    <th style="text-align: left; border: 0.3px solid #000; padding: ${escala * 0.3}px ${escala * 0.6}px; background: #000; color: #fff; font-weight: bold;">${t.colNutriente}</th>
+                    <th style="text-align: right; border: 0.3px solid #000; padding: ${escala * 0.3}px ${escala * 0.6}px; background: #000; color: #fff; font-weight: bold;">${t.colValor}</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${filasNut.map(([k, v]) => `
+                    <tr>
+                        <td style="border: 0.3px solid #000; padding: ${escala * 0.3}px ${escala * 0.6}px;">${k}</td>
+                        <td style="border: 0.3px solid #000; padding: ${escala * 0.3}px ${escala * 0.6}px; text-align: right; white-space: nowrap;">${v}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
 
     return `
         <div style="
-            width: ${anchoPx}px;
-            height: ${altoPx}px;
-            border: 1px dashed #999;
-            background: white;
+            width: ${anchoPx}px; height: ${altoPx}px;
+            border: 1px dashed #999; background: white;
             padding: ${MARGEN_TOTAL_MM * escala}px;
-            box-sizing: border-box;
-            font-family: Arial, sans-serif;
-            color: #000;
-            display: flex;
-            flex-direction: column;
-            font-size: ${escala * 2}px;
+            box-sizing: border-box; font-family: Arial, sans-serif;
+            color: #000; display: flex; flex-direction: column;
+            font-size: ${escala * 2}px; overflow: hidden;
         ">
-            <!-- Cabecera con logo -->
-            <div style="display: flex; align-items: center; gap: ${escala * 2}px; border-bottom: 0.5px solid #F7941E; padding-bottom: ${escala * 1}px;">
+            <div style="display: flex; align-items: center; gap: ${escala * 2}px; border-bottom: 0.5px solid #000; padding-bottom: ${escala * 0.8}px;">
                 <div style="flex-shrink: 0;">${logoHTML}</div>
-                <div style="flex: 1; font-size: ${escala * 1.7}px; font-weight: bold; color: #F7941E; line-height: 1.15; text-align: right;">
+                <div style="flex: 1; font-size: ${escala * 1.7}px; font-weight: bold; color: #000; line-height: 1.15; text-align: right;">
                     ${DATOS_OPERADOR.razonSocial}<br>
-                    <span style="font-weight: normal; color: #333; font-size: ${escala * 1.5}px;">
+                    <span style="font-weight: normal; font-size: ${escala * 1.5}px;">
                         RGSEAA: ${DATOS_OPERADOR.rgseaa}
                     </span>
                 </div>
             </div>
 
-            <!-- Lote destacado -->
-            <div style="text-align: center; font-size: ${escala * 2}px; font-weight: bold; margin: ${escala * 1.5}px 0; background: #FFF3E0; padding: ${escala * 1}px; border-radius: 2px;">
+            <div style="text-align: center; font-size: ${escala * 2}px; font-weight: bold; margin: ${escala * 1.2}px 0; background: #000; color: #fff; padding: ${escala * 0.8}px; border-radius: 2px;">
                 LOTE: ${escaparHTML(e.lote)}
             </div>
 
-            <!-- Nombre producto -->
-            <div style="font-weight: bold; text-align: center; font-size: ${escala * 2.4}px; margin: ${escala * 1}px 0;">
+            <div style="font-weight: bold; text-align: center; font-size: ${escala * 2.4}px; margin: ${escala * 0.8}px 0;">
                 ${escaparHTML(producto.nombre).toUpperCase()}
             </div>
 
-            <!-- Fechas -->
-            <div style="font-size: ${escala * 1.7}px; margin-bottom: ${escala * 1}px; line-height: 1.2;">
+            <div style="font-size: ${escala * 1.7}px; margin-bottom: ${escala * 0.8}px; line-height: 1.2;">
                 <strong>${t.fechaElaboracion}:</strong> ${formatearFechaEtiqueta(e.fechaProduccion)}<br>
                 <strong>${t.consumoPreferente}:</strong> ${formatearFechaEtiqueta(e.fechaCaducidad)}
             </div>
 
-            <!-- Ingredientes -->
-            <div style="font-weight: bold; font-size: ${escala * 1.8}px; margin-top: ${escala * 0.8}px;">${t.ingredientes}:</div>
-            <div style="font-size: ${escala * 1.65}px; line-height: 1.15; margin-bottom: ${escala * 1}px;">${escaparHTML(ing)}</div>
+            <div style="font-weight: bold; font-size: ${escala * 1.8}px; margin-top: ${escala * 0.6}px;">${t.ingredientes}:</div>
+            <div style="font-size: ${escala * 1.65}px; line-height: 1.15; margin-bottom: ${escala * 0.8}px;">${escaparHTML(ing)}</div>
 
-            <!-- Alérgenos -->
-            <div style="font-weight: bold; font-size: ${escala * 1.65}px; color: #C00; line-height: 1.15; margin-bottom: ${escala * 1}px;">${escaparHTML(aler)}</div>
-
-            <!-- Nutricional -->
-            <div style="font-weight: bold; font-size: ${escala * 1.8}px; margin-top: ${escala * 0.8}px;">${t.infoNutricional}</div>
-            <div style="font-size: ${escala * 1.55}px; line-height: 1.15;">
-                <em>${t.valorMedio}</em><br>
-                ${t.energia}: ${nut.energiaKJ}KJ/${nut.energiaKcal}kcal ·
-                ${t.grasas}: ${nut.grasas}g ·
-                ${t.grasasSaturadas}: ${nut.grasasSaturadas}g ·
-                ${t.hidratos}: ${nut.hidratos}g ·
-                ${t.azucares}: ${nut.azucares}g ·
-                ${t.proteinas}: ${nut.proteinas}g ·
-                ${t.sal}: ${nut.sal}g
+            <div style="border: 0.5px solid #000; padding: ${escala * 0.6}px; margin-bottom: ${escala * 0.8}px;">
+                <span style="font-weight: bold; font-size: ${escala * 1.75}px;">${t.alergenos}: </span>
+                <span style="font-weight: 900; font-size: ${escala * 1.65}px; line-height: 1.15;">${escaparHTML(aler)}</span>
             </div>
 
-            <!-- Conservación y elaboración -->
-            <div style="font-weight: bold; font-size: ${escala * 1.8}px; margin-top: ${escala * 1}px;">${t.conservacion}:</div>
+            <div style="font-weight: bold; font-size: ${escala * 1.8}px; margin-top: ${escala * 0.4}px;">${t.infoNutricional}</div>
+            <div style="font-size: ${escala * 1.55}px; margin-bottom: ${escala * 0.3}px;"><em>${t.valorMedio}</em></div>
+            ${tablaNutHTML}
+
+            <div style="font-weight: bold; font-size: ${escala * 1.7}px; margin-top: ${escala * 0.8}px;">${t.conservacion}:</div>
             <div style="font-size: ${escala * 1.55}px;">${TEXTOS_CONSERVACION[idioma]}</div>
-            <div style="font-weight: bold; font-size: ${escala * 1.8}px; margin-top: ${escala * 0.8}px;">${t.elaboracion}:</div>
+            <div style="font-weight: bold; font-size: ${escala * 1.7}px; margin-top: ${escala * 0.6}px;">${t.elaboracion}:</div>
             <div style="font-size: ${escala * 1.55}px;">${TEXTOS_ELABORACION[idioma]}</div>
 
-            <!-- Pie -->
-            <div style="margin-top: auto; font-size: ${escala * 1.4}px; text-align: center; border-top: 0.5px solid #ccc; padding-top: ${escala * 1}px; color: #666;">
+            <div style="margin-top: auto; font-size: ${escala * 1.4}px; text-align: center; border-top: 0.5px solid #000; padding-top: ${escala * 0.6}px;">
                 ${DATOS_OPERADOR.direccion} · ${DATOS_OPERADOR.paisOrigen}
             </div>
         </div>
@@ -809,7 +728,7 @@ function actualizarVistaPreviaEtiqueta() {
 }
 
 // ============================================================
-// 8. GENERACIÓN DE PDF (con logo embebido)
+// 8. GENERACIÓN DE PDF (v8: tabla nutricional dibujada)
 // ============================================================
 
 async function generarPDFEtiquetas() {
@@ -839,10 +758,9 @@ async function generarPDFEtiquetas() {
             return;
         }
 
-        // Cargar logo (con caché)
         const logoBase64 = await cargarLogoBase64();
 
-        const dim = FORMATOS_ETIQUETA[e.formato] || FORMATOS_ETIQUETA.horizontal;
+        const dim = FORMATOS_ETIQUETA[e.formato] || FORMATOS_ETIQUETA.vertical;
         const anchoMM = dim.ancho;
         const altoMM = dim.alto;
 
@@ -885,7 +803,7 @@ async function generarPDFEtiquetas() {
 }
 
 // ============================================================
-// 9. IMPRESIÓN DIRECTA
+// 9. IMPRESIÓN DIRECTA (v8: negro puro, tabla nutricional, alérgenos negrita)
 // ============================================================
 
 function imprimirEtiquetaDirecto() {
@@ -909,7 +827,7 @@ function imprimirEtiquetaDirecto() {
             return;
         }
 
-        const dim = FORMATOS_ETIQUETA[e.formato] || FORMATOS_ETIQUETA.horizontal;
+        const dim = FORMATOS_ETIQUETA[e.formato] || FORMATOS_ETIQUETA.vertical;
         const anchoMM = dim.ancho;
         const altoMM = dim.alto;
 
@@ -953,7 +871,7 @@ function imprimirEtiquetaDirecto() {
                         display: flex;
                         align-items: center;
                         gap: 2mm;
-                        border-bottom: 0.5pt solid #F7941E;
+                        border-bottom: 0.5pt solid #000;
                         padding-bottom: 0.5mm;
                         margin-bottom: 1mm;
                     }
@@ -962,28 +880,29 @@ function imprimirEtiquetaDirecto() {
                         max-width: 20mm;
                         object-fit: contain;
                         flex-shrink: 0;
+                        filter: grayscale(100%);
                     }
                     .cabecera .texto {
                         flex: 1;
                         text-align: right;
                         font-size: 5pt;
                         font-weight: bold;
-                        color: #F7941E;
+                        color: #000;
                         line-height: 1.15;
                     }
                     .cabecera .texto small {
                         display: block;
                         font-weight: normal;
-                        color: #333;
+                        color: #000;
                         font-size: 4pt;
                     }
                     .lote {
                         text-align: center;
                         font-size: 6pt;
                         font-weight: bold;
-                        background: #FFF3E0;
+                        background: #000;
+                        color: #fff;
                         padding: 0.5mm 0;
-                        border-radius: 0.5mm;
                         margin-bottom: 1mm;
                     }
                     .nombre-producto {
@@ -1009,23 +928,45 @@ function imprimirEtiquetaDirecto() {
                         line-height: 1.15;
                     }
                     .alergenos {
-                        font-weight: bold;
+                        font-weight: 900;
                         font-size: 5pt;
-                        color: #C00;
+                        color: #000;
                         margin-top: 0.6mm;
                         line-height: 1.15;
+                        border: 0.3pt solid #000;
+                        padding: 0.5mm;
                     }
-                    .nutricional {
-                        font-size: 5pt;
-                        line-height: 1.18;
+                    .tabla-nut {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 4.5pt;
+                        line-height: 1.1;
+                        margin-top: 0.3mm;
+                    }
+                    .tabla-nut th {
+                        border: 0.3pt solid #000;
+                        padding: 0.3mm 0.6mm;
+                        text-align: left;
+                        background: #000;
+                        color: #fff;
+                        font-weight: bold;
+                    }
+                    .tabla-nut th:last-child { text-align: right; }
+                    .tabla-nut td {
+                        border: 0.3pt solid #000;
+                        padding: 0.3mm 0.6mm;
+                    }
+                    .tabla-nut td:last-child {
+                        text-align: right;
+                        white-space: nowrap;
                     }
                     .pie {
                         font-size: 4pt;
                         text-align: center;
-                        border-top: 0.3pt solid #ccc;
+                        border-top: 0.3pt solid #000;
                         padding-top: 0.5mm;
                         margin-top: auto;
-                        color: #666;
+                        color: #000;
                         line-height: 1.1;
                     }
 
@@ -1071,7 +1012,7 @@ function imprimirEtiquetaDirecto() {
 }
 
 /**
- * Genera HTML de la etiqueta para impresión.
+ * v8: HTML de la etiqueta con alérgenos en negrita y tabla nutricional
  */
 function renderizarEtiquetaParaImpresion(e, producto, anchoMM, altoMM) {
     const idioma = e.idioma;
@@ -1082,7 +1023,17 @@ function renderizarEtiquetaParaImpresion(e, producto, anchoMM, altoMM) {
 
     const logoHTML = logoBase64Cache
         ? `<img src="${logoBase64Cache}" alt="Logo">`
-        : `<span style="font-size: 5pt; font-weight: bold; color: #F7941E;">🍕</span>`;
+        : `<span style="font-size: 5pt; font-weight: bold; color: #000;">PIZZAFRESH</span>`;
+
+    const filasNut = [
+        [t.energia, `${nut.energiaKJ}KJ/${nut.energiaKcal}kcal`],
+        [t.grasas, `${nut.grasas}g`],
+        [t.grasasSaturadas, `${nut.grasasSaturadas}g`],
+        [t.hidratos, `${nut.hidratos}g`],
+        [t.azucares, `${nut.azucares}g`],
+        [t.proteinas, `${nut.proteinas}g`],
+        [t.sal, `${nut.sal}g`]
+    ];
 
     return `
         <div class="etiqueta">
@@ -1101,12 +1052,19 @@ function renderizarEtiquetaParaImpresion(e, producto, anchoMM, altoMM) {
             </div>
             <div class="titulo-seccion">${t.ingredientes}:</div>
             <div class="texto">${escaparHTML(ing)}</div>
-            <div class="alergenos">${escaparHTML(aler)}</div>
-            <div class="titulo-seccion">${t.infoNutricional}</div>
-            <div class="nutricional">
-                <em>${t.valorMedio}</em><br>
-                ${t.energia}: ${nut.energiaKJ}KJ/${nut.energiaKcal}kcal · ${t.grasas}: ${nut.grasas}g · ${t.grasasSaturadas}: ${nut.grasasSaturadas}g · ${t.hidratos}: ${nut.hidratos}g · ${t.azucares}: ${nut.azucares}g · ${t.proteinas}: ${nut.proteinas}g · ${t.sal}: ${nut.sal}g
-            </div>
+            <div class="alergenos">${t.alergenos}: ${escaparHTML(aler)}</div>
+            <div class="titulo-seccion">${t.infoNutricional} <em style="font-weight: normal;">(${t.valorMedio})</em></div>
+            <table class="tabla-nut">
+                <thead>
+                    <tr>
+                        <th>${t.colNutriente}</th>
+                        <th>${t.colValor}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${filasNut.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}
+                </tbody>
+            </table>
             <div class="titulo-seccion">${t.conservacion}:</div>
             <div class="texto">${TEXTOS_CONSERVACION[idioma]}</div>
             <div class="titulo-seccion">${t.elaboracion}:</div>
@@ -1119,7 +1077,7 @@ function renderizarEtiquetaParaImpresion(e, producto, anchoMM, altoMM) {
 }
 
 // ============================================================
-// 10. DIBUJAR ETIQUETA EN PDF (con márgenes seguros + logo)
+// 10. DIBUJAR ETIQUETA EN PDF (v8: tabla nutricional dibujada)
 // ============================================================
 
 function dibujarEtiquetaEnPDF(doc, x, y, e, producto, anchoMM, altoMM, logoBase64) {
@@ -1139,42 +1097,39 @@ function dibujarEtiquetaEnPDF(doc, x, y, e, producto, anchoMM, altoMM, logoBase6
     // --- Cabecera con logo ---
     if (logoBase64) {
         try {
-            // Logo a la izquierda, altura 6 mm, ancho máx 20 mm
             doc.addImage(logoBase64, 'PNG', x + M, cursorY, 20, 6, undefined, 'FAST');
         } catch (imgError) {
             console.warn('No se pudo añadir el logo al PDF:', imgError);
         }
     } else {
-        // Fallback: solo texto
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6);
-        doc.setTextColor(247, 148, 30);
+        doc.setTextColor(0, 0, 0);
         doc.text('PIZZAFRESH', x + M, cursorY + 4);
     }
 
-    // Texto de la cabecera (a la derecha del logo)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(5);
-    doc.setTextColor(247, 148, 30);
+    doc.setTextColor(0, 0, 0);
     doc.text(DATOS_OPERADOR.razonSocial, x + W - M, cursorY + 2, { align: 'right', maxWidth: interiorW - 22 });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(4.5);
-    doc.setTextColor(50, 50, 50);
     doc.text('RGSEAA: ' + DATOS_OPERADOR.rgseaa, x + W - M, cursorY + 4.5, { align: 'right', maxWidth: interiorW - 22 });
 
     cursorY += 7;
-    doc.setDrawColor(247, 148, 30);
-    doc.setLineWidth(0.2);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
     doc.line(x + M, cursorY, x + W - M, cursorY);
     cursorY += 2;
 
-    // --- Lote destacado ---
-    doc.setFillColor(255, 243, 224);  // Fondo naranja claro
+    // --- Lote (fondo negro, texto blanco → térmica-friendly) ---
+    doc.setFillColor(0, 0, 0);
     doc.rect(x + M, cursorY - 0.5, interiorW, 4, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
-    doc.setTextColor(0, 0, 0);
+    doc.setTextColor(255, 255, 255);
     doc.text('LOTE: ' + e.lote, x + W / 2, cursorY + 2.5, { align: 'center', maxWidth: interiorW });
+    doc.setTextColor(0, 0, 0);
     cursorY += 5.5;
 
     // --- Nombre producto ---
@@ -1202,16 +1157,18 @@ function dibujarEtiquetaEnPDF(doc, x, y, e, producto, anchoMM, altoMM, logoBase6
     doc.text(lineasIng, x + M, cursorY);
     cursorY += lineasIng.length * 1.7 + 1.5;
 
-    // --- Alérgenos ---
+    // --- Alérgenos (recuadro + negrita) ---
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(5);
-    doc.setTextColor(200, 0, 0);
-    const lineasAler = doc.splitTextToSize(aler, interiorW);
-    doc.text(lineasAler, x + M, cursorY);
-    cursorY += lineasAler.length * 1.7 + 1.5;
-    doc.setTextColor(0, 0, 0);
+    const lineasAler = doc.splitTextToSize(`${t.alergenos}: ${aler}`, interiorW - 2);
+    const altoAler = lineasAler.length * 1.9 + 1.2;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
+    doc.rect(x + M, cursorY - 1, interiorW, altoAler);
+    doc.text(lineasAler, x + M + 1, cursorY + 0.5);
+    cursorY += altoAler + 1.5;
 
-    // --- Nutricional ---
+    // --- Nutrición en tabla dibujada ---
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(5.5);
     doc.text(t.infoNutricional, x + M, cursorY);
@@ -1220,16 +1177,46 @@ function dibujarEtiquetaEnPDF(doc, x, y, e, producto, anchoMM, altoMM, logoBase6
     doc.setFontSize(4.5);
     doc.text(t.valorMedio, x + M, cursorY);
     cursorY += 1.8;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5);
 
-    // Nutricional en 2 líneas horizontales
-    const linea1 = `${t.energia}: ${nut.energiaKJ}KJ/${nut.energiaKcal}kcal   ·   ${t.grasas}: ${nut.grasas}g   ·   ${t.grasasSaturadas}: ${nut.grasasSaturadas}g   ·   ${t.hidratos}: ${nut.hidratos}g`;
-    const linea2 = `${t.azucares}: ${nut.azucares}g   ·   ${t.proteinas}: ${nut.proteinas}g   ·   ${t.sal}: ${nut.sal}g`;
-    doc.text(linea1, x + M, cursorY, { maxWidth: interiorW });
-    cursorY += 1.8;
-    doc.text(linea2, x + M, cursorY, { maxWidth: interiorW });
-    cursorY += 2.5;
+    const filasNut = [
+        [t.energia, `${nut.energiaKJ}KJ/${nut.energiaKcal}kcal`],
+        [t.grasas, `${nut.grasas}g`],
+        [t.grasasSaturadas, `${nut.grasasSaturadas}g`],
+        [t.hidratos, `${nut.hidratos}g`],
+        [t.azucares, `${nut.azucares}g`],
+        [t.proteinas, `${nut.proteinas}g`],
+        [t.sal, `${nut.sal}g`]
+    ];
+
+    const filaAlto = 1.9;
+    const colValorAncho = interiorW * 0.28;
+    const colNutrienteAncho = interiorW - colValorAncho;
+
+    // Cabecera tabla (fondo negro)
+    doc.setFillColor(0, 0, 0);
+    doc.rect(x + M, cursorY, interiorW, filaAlto, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(4.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(t.colNutriente, x + M + 0.8, cursorY + filaAlto * 0.72);
+    doc.text(t.colValor, x + W - M - 0.8, cursorY + filaAlto * 0.72, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+    cursorY += filaAlto;
+
+    // Filas
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(4.5);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.15);
+
+    filasNut.forEach(([k, v]) => {
+        doc.rect(x + M, cursorY, interiorW, filaAlto, 'S');
+        doc.text(k, x + M + 0.8, cursorY + filaAlto * 0.72, { maxWidth: colNutrienteAncho - 1.5 });
+        doc.text(v, x + W - M - 0.8, cursorY + filaAlto * 0.72, { align: 'right' });
+        cursorY += filaAlto;
+    });
+
+    cursorY += 1.5;
 
     // --- Conservación ---
     doc.setFont('helvetica', 'bold');
@@ -1252,12 +1239,12 @@ function dibujarEtiquetaEnPDF(doc, x, y, e, producto, anchoMM, altoMM, logoBase6
 
     // --- Pie ---
     const pieY = y + H - M - 0.5;
-    doc.setDrawColor(180, 180, 180);
-    doc.setLineWidth(0.05);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.15);
     doc.line(x + M, pieY - 0.8, x + W - M, pieY - 0.8);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(4);
-    doc.setTextColor(120, 120, 120);
+    doc.setTextColor(0, 0, 0);
     doc.text(
         `${DATOS_OPERADOR.direccion} · ${DATOS_OPERADOR.paisOrigen}`,
         x + W / 2, pieY + 0.8,

@@ -1,17 +1,14 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCCIÓN
+ * MÓDULO: PRODUCCIÓN (v2)
  * ============================================================
- * Responsabilidades:
- *   - Obtener/crear el día de producción
- *   - Inicializar inventario (amasado o herencia del día anterior)
- *   - Calcular ventas diarias, costes y margen
- *   - CRUD de pedidos (añadir, duplicar, eliminar, limpiar)
- *   - Navegación entre días
- *   - Renderizado completo de la vista (solo al cambiar de día)
- *   - Actualización quirúrgica de totales/inventario/resumen sin re-render
- * 
- * Dependencias: datos.js, utilidades.js, productos.js, clientes.js
+ * Cambios v2:
+ *   - Tabla de stock de bolas por tipo (paralela a la de inventario)
+ *   - Consumo de bolas calculado desde producto.tipoBola
+ *   - Aviso de déficit si el consumo supera el stock
+ *   - Mantiene la tabla de inventario por producto para compatibilidad
+ *
+ * Dependencias: datos.js, utilidades.js, productos.js, clientes.js, amasado.js
  * ============================================================
  */
 
@@ -19,10 +16,6 @@
 // 1. OBTENER / CREAR DÍA DE PRODUCCIÓN
 // ============================================================
 
-/**
- * Devuelve el objeto de producción para una fecha.
- * Si no existe, lo crea con estructura vacía.
- */
 function obtenerProduccionDia(datos, fecha) {
     if (!datos.produccion[fecha]) {
         datos.produccion[fecha] = {
@@ -38,9 +31,6 @@ function obtenerProduccionDia(datos, fecha) {
 // 2. INICIALIZACIÓN DE INVENTARIO
 // ============================================================
 
-/**
- * Busca una orden de amasado aplicada cuya fecha de uso sea la fecha dada.
- */
 function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
     if (typeof buscarOrdenAmasadoPorFechaUso === 'function') {
         return buscarOrdenAmasadoPorFechaUso(datos, fecha);
@@ -54,9 +44,6 @@ function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
     return null;
 }
 
-/**
- * Inicializa el inventario de un día si está vacío.
- */
 function inicializarInventario(datos, fecha) {
     const productos = obtenerProductosActivos(datos);
     const produccion = obtenerProduccionDia(datos, fecha);
@@ -66,15 +53,21 @@ function inicializarInventario(datos, fecha) {
     }
 
     const ordenAmasado = buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha);
-    if (ordenAmasado) {
+    if (ordenAmasado && typeof obtenerStockBolasDeOrden === 'function') {
+        // v2: repartir bolas entre productos del mismo tipo
+        const stockPorTipo = obtenerStockBolasDeOrden(ordenAmasado);
         const inv = {};
-        ordenAmasado.lineas.forEach(linea => {
-            if (linea.distribucion) {
-                Object.keys(linea.distribucion).forEach(prod => {
-                    const c = linea.distribucion[prod] || 0;
-                    if (c > 0) inv[prod] = (inv[prod] || 0) + c;
-                });
-            }
+        Object.keys(stockPorTipo).forEach(tipo => {
+            const totalBolas = stockPorTipo[tipo] || 0;
+            if (totalBolas <= 0) return;
+            const productosDeEsteTipo = productos.filter(p => p.tipoBola === tipo);
+            if (productosDeEsteTipo.length === 0) return;
+            const porProducto = Math.floor(totalBolas / productosDeEsteTipo.length);
+            const resto = totalBolas - porProducto * productosDeEsteTipo.length;
+            productosDeEsteTipo.forEach((p, i) => {
+                const cant = porProducto + (i < resto ? 1 : 0);
+                if (cant > 0) inv[p.nombre] = (inv[p.nombre] || 0) + cant;
+            });
         });
         produccion.inventarioInicial = inv;
         produccion.inventarioDesdeAmasado = true;
@@ -162,11 +155,6 @@ function calcularTotalPedido(productos) {
 // 3.1 STOCK DE BOLAS (v2)
 // ============================================================
 
-/**
- * Devuelve el stock de bolas inicial por tipo para una fecha.
- * Prioriza produccion.inventarioBolas (v2). Si no existe,
- * lo intenta derivar del amasado aplicado o del día anterior.
- */
 function obtenerStockBolasInicial(datos, fecha) {
     const produccion = obtenerProduccionDia(datos, fecha);
 
@@ -174,7 +162,6 @@ function obtenerStockBolasInicial(datos, fecha) {
         return { ...produccion.inventarioBolas };
     }
 
-    // Derivar de la orden de amasado aplicada
     const ordenAmasado = buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha);
     if (ordenAmasado && typeof obtenerStockBolasDeOrden === 'function') {
         const stock = obtenerStockBolasDeOrden(ordenAmasado);
@@ -184,7 +171,6 @@ function obtenerStockBolasInicial(datos, fecha) {
         return { ...stock };
     }
 
-    // Heredar del día anterior
     const fechaAnt = new Date(fecha);
     fechaAnt.setDate(fechaAnt.getDate() - 1);
     const fechaAntStr = fechaAnt.toISOString().split('T')[0];
@@ -198,11 +184,6 @@ function obtenerStockBolasInicial(datos, fecha) {
     return {};
 }
 
-/**
- * Calcula el consumo de bolas por tipo según los pedidos del día.
- * Usa producto.tipoBola como fuente de verdad.
- * Devuelve { tipoBola: cantidadConsumida, ... }
- */
 function calcularConsumoBolas(datos, fecha) {
     const produccion = obtenerProduccionDia(datos, fecha);
     const consumo = {};
@@ -212,12 +193,9 @@ function calcularConsumoBolas(datos, fecha) {
         Object.keys(pedido.productos).forEach(nombreProd => {
             const cant = parseFloat(pedido.productos[nombreProd]) || 0;
             if (cant <= 0) return;
-
-            // Buscar el producto para saber su tipoBola
             const producto = datos.productos.find(p => p.nombre === nombreProd);
             const tipo = producto?.tipoBola;
-            if (!tipo) return; // producto sin tipoBola → no descuenta stock
-
+            if (!tipo) return;
             consumo[tipo] = (consumo[tipo] || 0) + cant;
         });
     });
@@ -225,16 +203,9 @@ function calcularConsumoBolas(datos, fecha) {
     return consumo;
 }
 
-/**
- * Devuelve el estado del stock de bolas para una fecha:
- *   [{ tipo, inicial, consumido, restante, deficit }, ...]
- * Ordenado por tipo. deficit = true si restante < 0.
- */
 function calcularEstadoStockBolas(datos, fecha) {
     const inicial = obtenerStockBolasInicial(datos, fecha);
     const consumo = calcularConsumoBolas(datos, fecha);
-
-    // Unir claves de ambos objetos
     const tipos = new Set([...Object.keys(inicial), ...Object.keys(consumo)]);
 
     const resultado = [];
@@ -251,7 +222,6 @@ function calcularEstadoStockBolas(datos, fecha) {
         });
     });
 
-    // Ordenar: primero los que tienen déficit, luego por cantidad restante
     resultado.sort((a, b) => {
         if (a.deficit !== b.deficit) return a.deficit ? -1 : 1;
         return a.tipo.localeCompare(b.tipo);
@@ -259,17 +229,10 @@ function calcularEstadoStockBolas(datos, fecha) {
 
     return resultado;
 }
-
 // ============================================================
 // 4. RENDERIZADO COMPLETO DE LA VISTA PRODUCCIÓN
 // ============================================================
 
-/**
- * Renderiza la vista completa de producción diaria.
- * 
- * @param {string} fechaParam - (Opcional) Fecha en formato YYYY-MM-DD.
- *                              Si no se pasa, se lee del DOM o se usa hoy.
- */
 function renderizarProduccion(fechaParam) {
     const container = document.getElementById('vista-container');
     container.innerHTML = '<div class="loading">Cargando producción...</div>';
@@ -497,21 +460,12 @@ function renderizarProduccion(fechaParam) {
                 });
             }
 
+            // --- v2: tabla de stock de bolas (CONTINUACIÓN, no nuevo html +=) ---
             html += `
                             </tbody>
                         </table>
                     </div>
-                </div>
-            `;
 
-                        html += `
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- ============================================
-                         v2: STOCK DE BOLAS
-                         ============================================ -->
                     <div class="vista-header" style="margin-top: 20px;">
                         <h3>🍕 Stock de Bolas</h3>
                     </div>
@@ -561,7 +515,6 @@ function renderizarProduccion(fechaParam) {
                 });
             }
 
-            // Aviso global si hay déficit
             const hayDeficit = estadoBolas.some(f => f.deficit);
             if (hayDeficit) {
                 const tiposConDeficit = estadoBolas.filter(f => f.deficit).map(f => f.tipo).join(', ');
@@ -574,6 +527,7 @@ function renderizarProduccion(fechaParam) {
                 `;
             }
 
+            // Cierre único y final de la vista
             html += `
                             </tbody>
                         </table>
@@ -597,16 +551,10 @@ function renderizarProduccion(fechaParam) {
         }
     }, 50);
 }
-
 // ============================================================
 // 4.1 ACTUALIZACIÓN QUIRÚRGICA (SIN RE-RENDER)
 // ============================================================
 
-/**
- * Recalcula totales por fila, tabla de inventario y resumen del día.
- * NO toca el DOM de la tabla de pedidos (solo los totales y clases),
- * así NO pierde scroll ni foco.
- */
 function actualizarVistaSinReRender() {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -624,7 +572,6 @@ function actualizarVistaSinReRender() {
         const totalCell = fila.querySelector(`[data-total-index="${index}"]`);
         if (totalCell) totalCell.textContent = total;
 
-        // Actualizar clase de finalizado
         if (pedido.finalizado) {
             fila.classList.add('finalizado');
         } else {
@@ -632,7 +579,7 @@ function actualizarVistaSinReRender() {
         }
     });
 
-    // --- 2. Actualizar tabla de inventario ---
+    // --- 2. Actualizar tabla de inventario por producto ---
     const filasInv = document.querySelectorAll('#tabla-inventario tbody tr[data-inventario-producto]');
     filasInv.forEach(fila => {
         const producto = fila.dataset.inventarioProducto;
@@ -646,7 +593,60 @@ function actualizarVistaSinReRender() {
         if (finalCell) finalCell.textContent = final;
     });
 
-    // --- 3. Actualizar resumen del día ---
+    // --- 3. v2: actualizar tabla de stock de bolas ---
+    const tablaBolas = document.getElementById('tabla-stock-bolas');
+    if (tablaBolas) {
+        const tbody = tablaBolas.querySelector('tbody');
+        const estadoBolas = calcularEstadoStockBolas(datos, fecha);
+
+        if (estadoBolas.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="4" class="text-center" style="padding: 20px; color: #999;">
+                        Sin stock de bolas para este día
+                    </td>
+                </tr>
+            `;
+        } else {
+            let htmlBolas = '';
+            estadoBolas.forEach(fila => {
+                const colorFila = fila.deficit ? 'background: #FFEBEE;' : '';
+                const colorRestante = fila.deficit
+                    ? 'color: var(--error); font-weight: bold;'
+                    : fila.restante === 0
+                        ? 'color: var(--warning); font-weight: bold;'
+                        : 'color: var(--success); font-weight: bold;';
+
+                htmlBolas += `
+                    <tr style="${colorFila}">
+                        <td><strong>${escaparHTML(fila.tipo)}</strong></td>
+                        <td>${fila.inicial}</td>
+                        <td>${fila.consumido}</td>
+                        <td style="${colorRestante}">
+                            ${fila.restante}
+                            ${fila.deficit ? ' ⚠️' : ''}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            const hayDeficit = estadoBolas.some(f => f.deficit);
+            if (hayDeficit) {
+                const tiposConDeficit = estadoBolas.filter(f => f.deficit).map(f => f.tipo).join(', ');
+                htmlBolas += `
+                    <tr>
+                        <td colspan="4" style="background: #FFEBEE; color: #C62828; padding: 10px; font-size: 0.85rem;">
+                            ⚠️ <strong>Déficit de bolas:</strong> ${escaparHTML(tiposConDeficit)}. Revisa los pedidos o ajusta el amasado.
+                        </td>
+                    </tr>
+                `;
+            }
+
+            tbody.innerHTML = htmlBolas;
+        }
+    }
+
+    // --- 4. Actualizar resumen del día ---
     const costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
     const costeMOD = redondear2((produccion.horasTrabajadas || 0) * datos.configuracion.costeManoObraHora);
     const ventasGen = calcularVentasGeneradas(datos, ventasDiarias);
@@ -674,7 +674,6 @@ function actualizarVistaSinReRender() {
     if (elUnidades) elUnidades.textContent = sumaValores(ventasDiarias);
     if (elContador) elContador.textContent = produccion.pedidos.length;
 
-    // --- 4. Persistir ---
     guardarDatos(datos);
 }
 
@@ -756,7 +755,6 @@ function añadirFilaPedido() {
     });
 
     guardarDatos(datos);
-    // Re-render completo: es una acción puntual, no rompe UX
     renderizarProduccion(fecha);
     mostrarNotificacion('✅ Fila añadida', 'success');
 }
@@ -821,12 +819,6 @@ function limpiarPedidosFinalizados() {
     mostrarNotificacion(`✅ ${eliminados} pedidos finalizados eliminados`, 'success');
 }
 
-/**
- * Actualiza un pedido desde los inputs de la fila.
- * IMPORTANTE: NO re-renderiza la vista completa.
- * En su lugar, llama a actualizarVistaSinReRender() que solo
- * recalcula totales, inventario y resumen → sin parpadeo ni pérdida de scroll.
- */
 function actualizarPedido(index) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -837,13 +829,11 @@ function actualizarPedido(index) {
     const fila = document.querySelector(`#tabla-pedidos tbody tr[data-fila-index="${index}"]`);
     if (!fila) return;
 
-    // Cliente
     const select = fila.querySelector('.cliente-select');
     if (select) {
         produccion.pedidos[index].clienteId = parseInt(select.value) || null;
     }
 
-    // Cantidades
     const inputs = fila.querySelectorAll('.cantidad-input');
     inputs.forEach(input => {
         const producto = input.dataset.producto;
@@ -854,13 +844,11 @@ function actualizarPedido(index) {
         produccion.pedidos[index].productos[producto] = valor;
     });
 
-    // Finalizado
     const checkbox = fila.querySelector('.finalizado-check');
     if (checkbox) {
         produccion.pedidos[index].finalizado = checkbox.checked;
     }
 
-    // Persistir y actualizar SOLO las partes afectadas
     guardarDatos(datos);
     actualizarVistaSinReRender();
 }
@@ -869,9 +857,6 @@ function actualizarPedido(index) {
 // 7. ACTUALIZACIONES DE CAMPOS DEL DÍA
 // ============================================================
 
-/**
- * Guarda las horas trabajadas y actualiza solo el resumen (sin re-render).
- */
 function guardarHorasTrabajadas(valor) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
@@ -881,9 +866,6 @@ function guardarHorasTrabajadas(valor) {
     actualizarVistaSinReRender();
 }
 
-/**
- * Actualiza el inventario inicial de un producto y recalcula el final.
- */
 function actualizarInventarioInicial(producto, valor) {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();

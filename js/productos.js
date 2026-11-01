@@ -1,19 +1,78 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCTOS
+ * MÓDULO: PRODUCTOS (v2)
  * ============================================================
- * Responsabilidades:
- *   - Consultas de productos (activos, precios, búsqueda)
- *   - CRUD de productos (crear, editar, activar, desactivar)
- *   - Ficha técnica editable (ingredientes, alérgenos, nutricional)
- *   - Renderizado de la vista de Productos
- * 
- * Dependencias: datos.js, utilidades.js
+ * Cambios v2:
+ *   - Campo tipoBola obligatorio en cada producto
+ *   - Formulario con <select> de tipo de bola
+ *   - Columna "Tipo Bola" en la tabla
+ *   - Migración automática al cargar la lista
+ *   - Aviso visual si un producto no tiene tipoBola
+ *
+ * Dependencias: datos.js, utilidades.js, amasado.js
  * ============================================================
  */
 
 // ============================================================
-// 1. CONSULTAS DE PRODUCTOS
+// 1. ESTRUCTURA DE PRODUCTO
+// ============================================================
+
+function crearProductoVacio() {
+    return {
+        id: 0,
+        nombre: "",
+        precioCosto: 0,
+        precioVenta: 0,
+        activo: true,
+        tipoBola: null,
+        pesoNeto: "",
+        formato: "",
+        ingredientesES: "",
+        ingredientesPT: "",
+        ingredientesFR: "",
+        ingredientesEN: "",
+        alergenosES: "",
+        alergenosPT: "",
+        alergenosFR: "",
+        alergenosEN: "",
+        nutricional: null
+    };
+}
+
+function asegurarEstructuraProducto(producto) {
+    const plantilla = crearProductoVacio();
+    return Object.assign({}, plantilla, producto);
+}
+
+/**
+ * Rellena tipoBola de los productos que no lo tengan usando
+ * el mapa derivado de CONFIGURACION_AMASADO.
+ * Idempotente.
+ */
+function migrarProductosSinTipoBola(datos) {
+    const productosSinTipo = datos.productos.filter(
+        p => p.tipoBola === null || p.tipoBola === undefined
+    );
+    if (productosSinTipo.length === 0) return 0;
+
+    // Intentar resolver por nombre contra el mapa de amasado
+    if (typeof construirMapaProductoATipoBola === 'function') {
+        const mapa = construirMapaProductoATipoBola();
+        let migrados = 0;
+        productosSinTipo.forEach(p => {
+            if (mapa[p.nombre]) {
+                p.tipoBola = mapa[p.nombre];
+                migrados++;
+            }
+        });
+        if (migrados > 0) guardarDatos(datos);
+        return migrados;
+    }
+    return 0;
+}
+
+// ============================================================
+// 2. CONSULTAS DE PRODUCTOS
 // ============================================================
 
 function obtenerProductosActivos(datos) {
@@ -34,29 +93,74 @@ function obtenerProductoPorNombre(datos, nombre) {
     return datos.productos.find(p => p.nombre === nombre && p.activo) || null;
 }
 
+function obtenerTiposBolaDisponibles() {
+    if (typeof obtenerTiposBola === 'function') {
+        return obtenerTiposBola();
+    }
+    return [];
+}
 // ============================================================
-// 2. RENDERIZADO DE LA VISTA PRODUCTOS
+// 3. RENDERIZADO DE LA VISTA PRODUCTOS
 // ============================================================
 
 function renderizarProductos() {
     const container = document.getElementById('vista-container');
     const datos = cargarDatos();
 
+    // Migración automática al cargar la lista
+    migrarProductosSinTipoBola(datos);
+
+    // Normalizar estructura
+    datos.productos = datos.productos.map(asegurarEstructuraProducto);
+
+    const tiposBola = obtenerTiposBolaDisponibles();
+    const productosConTipoBola = datos.productos.filter(p => p.tipoBola);
+    const productosSinTipoBola = datos.productos.filter(p => !p.tipoBola);
+
+    // Opciones para el select de tipo de bola
+    const opcionesTipoBola = tiposBola
+        .map(t => `<option value="${escaparHTML(t)}">${escaparHTML(t)}</option>`)
+        .join('');
+
     let html = `
         <div class="vista active">
             <div class="vista-header">
                 <div>
                     <h2>📦 Productos</h2>
-                    <span class="subtitle">${datos.productos.filter(p => p.activo).length} productos activos de ${datos.productos.length} totales</span>
+                    <span class="subtitle">
+                        ${datos.productos.filter(p => p.activo).length} activos de ${datos.productos.length} totales
+                        ${productosSinTipoBola.length > 0
+                            ? ` · <span style="color: var(--error); font-weight: bold;">⚠️ ${productosSinTipoBola.length} sin tipo de bola</span>`
+                            : ''}
+                    </span>
                 </div>
                 <button class="btn btn-primary" onclick="mostrarFormularioProducto()">➕ Añadir Producto</button>
             </div>
+
+            ${productosSinTipoBola.length > 0 ? `
+                <div style="background: #FFF3E0; border-left: 4px solid var(--warning); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <strong>⚠️ Productos sin tipo de bola asignado:</strong>
+                    ${productosSinTipoBola.map(p => escaparHTML(p.nombre)).join(', ')}.
+                    <br>
+                    <span style="font-size: 0.85rem; color: #666;">
+                        Edita cada producto y asígnale un tipo de bola para que cuente en el amasado.
+                    </span>
+                </div>
+            ` : ''}
+
             <div id="form-producto-container" style="display: none; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
                 <h3 id="form-producto-titulo">Añadir Producto</h3>
                 <div class="form-row">
                     <div class="form-group">
                         <label for="producto-nombre">Nombre *</label>
                         <input type="text" id="producto-nombre" placeholder="Ej: Pizza Familiar" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="producto-tipoBola">Tipo de bola *</label>
+                        <select id="producto-tipoBola" required>
+                            <option value="">— Seleccionar tipo —</option>
+                            ${opcionesTipoBola}
+                        </select>
                     </div>
                     <div class="form-group">
                         <label for="producto-precioCosto">Precio Coste (€)</label>
@@ -73,12 +177,14 @@ function renderizarProductos() {
                     <button class="btn btn-secondary" onclick="cerrarFormularioProducto()">❌ Cancelar</button>
                 </div>
             </div>
+
             <div class="tabla-container">
                 <table>
                     <thead>
                         <tr>
                             <th>ID</th>
                             <th>Nombre</th>
+                            <th>Tipo Bola</th>
                             <th>Precio Coste</th>
                             <th>Precio Venta</th>
                             <th>Margen</th>
@@ -92,7 +198,7 @@ function renderizarProductos() {
     if (datos.productos.length === 0) {
         html += `
             <tr>
-                <td colspan="7" class="text-center" style="padding: 30px; color: #999;">
+                <td colspan="8" class="text-center" style="padding: 30px; color: #999;">
                     No hay productos registrados
                 </td>
             </tr>
@@ -103,12 +209,17 @@ function renderizarProductos() {
                 ? Math.round(((producto.precioVenta - producto.precioCosto) / producto.precioVenta) * 10000) / 100
                 : 0;
 
+            const tipoBolaHTML = producto.tipoBola
+                ? `<span style="background: #E3F2FD; color: #1565C0; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600;">${escaparHTML(producto.tipoBola)}</span>`
+                : `<span style="background: #FFEBEE; color: #C62828; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600;" title="Sin tipo de bola asignado">⚠️ Sin asignar</span>`;
+
             html += `
                 <tr>
                     <td>${producto.id}</td>
                     <td><strong>${escaparHTML(producto.nombre)}</strong></td>
-                    <td>${producto.precioCosto.toFixed(2)} €</td>
-                    <td>${producto.precioVenta.toFixed(2)} €</td>
+                    <td>${tipoBolaHTML}</td>
+                    <td>${(producto.precioCosto || 0).toFixed(2)} €</td>
+                    <td>${(producto.precioVenta || 0).toFixed(2)} €</td>
                     <td style="color: ${margen > 30 ? 'var(--success)' : margen > 15 ? 'var(--warning)' : 'var(--error)'}">
                         ${margen}%
                     </td>
@@ -139,15 +250,15 @@ function renderizarProductos() {
 
     container.innerHTML = html;
 }
-
 // ============================================================
-// 3. FORMULARIO DE PRODUCTOS
+// 4. FORMULARIO DE PRODUCTOS
 // ============================================================
 
 function mostrarFormularioProducto() {
     document.getElementById('form-producto-container').style.display = 'block';
     document.getElementById('form-producto-titulo').textContent = 'Añadir Producto';
     document.getElementById('producto-nombre').value = '';
+    document.getElementById('producto-tipoBola').value = '';
     document.getElementById('producto-precioCosto').value = '';
     document.getElementById('producto-precioVenta').value = '';
     document.getElementById('producto-editando-id').value = '';
@@ -160,11 +271,12 @@ function cerrarFormularioProducto() {
 }
 
 // ============================================================
-// 4. CRUD DE PRODUCTOS
+// 5. CRUD DE PRODUCTOS
 // ============================================================
 
 function guardarProducto() {
     const nombre = document.getElementById('producto-nombre').value.trim();
+    const tipoBola = document.getElementById('producto-tipoBola').value;
     const precioCosto = aDecimal(document.getElementById('producto-precioCosto').value);
     const precioVenta = aDecimal(document.getElementById('producto-precioVenta').value);
     const editandoId = document.getElementById('producto-editando-id').value;
@@ -172,6 +284,11 @@ function guardarProducto() {
     if (!nombre) {
         mostrarNotificacion('❌ El nombre es obligatorio', 'error');
         document.getElementById('producto-nombre').focus();
+        return;
+    }
+    if (!tipoBola) {
+        mostrarNotificacion('❌ El tipo de bola es obligatorio', 'error');
+        document.getElementById('producto-tipoBola').focus();
         return;
     }
 
@@ -189,6 +306,7 @@ function guardarProducto() {
                 return;
             }
             producto.nombre = nombre;
+            producto.tipoBola = tipoBola;
             producto.precioCosto = precioCosto;
             producto.precioVenta = precioVenta;
             guardarDatos(datos);
@@ -201,13 +319,14 @@ function guardarProducto() {
             document.getElementById('producto-nombre').focus();
             return;
         }
-        const nuevoProducto = {
+        const nuevoProducto = Object.assign(crearProductoVacio(), {
             id: generarId(datos.productos),
             nombre,
+            tipoBola,
             precioCosto,
             precioVenta,
             activo: true
-        };
+        });
         datos.productos.push(nuevoProducto);
         guardarDatos(datos);
         mostrarNotificacion('✅ Producto añadido correctamente', 'success');
@@ -228,6 +347,7 @@ function editarProducto(id) {
     document.getElementById('form-producto-container').style.display = 'block';
     document.getElementById('form-producto-titulo').textContent = 'Editar Producto';
     document.getElementById('producto-nombre').value = producto.nombre;
+    document.getElementById('producto-tipoBola').value = producto.tipoBola || '';
     document.getElementById('producto-precioCosto').value = producto.precioCosto;
     document.getElementById('producto-precioVenta').value = producto.precioVenta;
     document.getElementById('producto-editando-id').value = producto.id;
@@ -259,21 +379,9 @@ function reactivarProducto(id) {
 }
 
 // ============================================================
-// 5. FICHA TÉCNICA DEL PRODUCTO
-// ============================================================
-// La ficha técnica incluye:
-//   - Peso neto y formato
-//   - Ingredientes en 4 idiomas (ES, PT, FR, EN)
-//   - Alérgenos en 4 idiomas
-//   - Información nutricional (por 100 g)
-// Se usa en el módulo de etiquetas para generar la info legal.
+// 6. FICHA TÉCNICA DEL PRODUCTO
 // ============================================================
 
-/**
- * Abre el editor de ficha técnica del producto.
- * Permite editar ingredientes, alérgenos y nutricional.
- * Los cambios se guardan directamente en el producto.
- */
 function editarFichaTecnicaProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);
@@ -282,7 +390,6 @@ function editarFichaTecnicaProducto(id) {
         return;
     }
 
-    // Valores por defecto (Hermanos Viudes S.L.)
     const defecto = {
         pesoNeto: '',
         formato: '',
@@ -295,18 +402,11 @@ function editarFichaTecnicaProducto(id) {
         alergenosFR: 'SOJA ET MOUTARDE (Non présents dans la formulation, mais ne peuvent être exclus en raison d\'une contamination croisée).',
         alergenosEN: 'SOY AND MUSTARD (Not present in the formulation, but cannot be ruled out due to cross-contamination).',
         nutricional: {
-            energiaKJ: 1160,
-            energiaKcal: 274,
-            grasas: 4.3,
-            grasasSaturadas: 1.2,
-            hidratos: 50,
-            azucares: 0.5,
-            proteinas: 8.6,
-            sal: 1.5
+            energiaKJ: 1160, energiaKcal: 274, grasas: 4.3, grasasSaturadas: 1.2,
+            hidratos: 50, azucares: 0.5, proteinas: 8.6, sal: 1.5
         }
     };
 
-    // Combinar valores actuales del producto con los por defecto
     const ficha = {
         pesoNeto: producto.pesoNeto || defecto.pesoNeto,
         formato: producto.formato || defecto.formato,
@@ -321,13 +421,11 @@ function editarFichaTecnicaProducto(id) {
         nutricional: producto.nutricional || { ...defecto.nutricional }
     };
 
-    // --- 1. Datos generales ---
     const pesoNeto = prompt('📦 Peso neto (ej: 100 g):', ficha.pesoNeto);
     if (pesoNeto === null) return;
     const formato = prompt('📐 Formato (ej: Single 100 g):', ficha.formato);
     if (formato === null) return;
 
-    // --- 2. Ingredientes por idioma ---
     const ingredientesES = prompt('🥣 Ingredientes (ES):', ficha.ingredientesES);
     if (ingredientesES === null) return;
     const ingredientesPT = prompt('🥣 Ingredientes (PT):', ficha.ingredientesPT);
@@ -337,7 +435,6 @@ function editarFichaTecnicaProducto(id) {
     const ingredientesEN = prompt('🥣 Ingredientes (EN):', ficha.ingredientesEN);
     if (ingredientesEN === null) return;
 
-    // --- 3. Alérgenos por idioma ---
     const alergenosES = prompt('⚠️ Alérgenos (ES):', ficha.alergenosES);
     if (alergenosES === null) return;
     const alergenosPT = prompt('⚠️ Alérgenos (PT):', ficha.alergenosPT);
@@ -347,7 +444,6 @@ function editarFichaTecnicaProducto(id) {
     const alergenosEN = prompt('⚠️ Alérgenos (EN):', ficha.alergenosEN);
     if (alergenosEN === null) return;
 
-    // --- 4. Información nutricional (por 100 g) ---
     const energiaKJ = prompt('🔥 Energía (KJ) por 100g:', ficha.nutricional.energiaKJ);
     if (energiaKJ === null) return;
     const energiaKcal = prompt('🔥 Energía (kcal) por 100g:', ficha.nutricional.energiaKcal);
@@ -365,7 +461,6 @@ function editarFichaTecnicaProducto(id) {
     const sal = prompt('🧂 Sal (g) por 100g:', ficha.nutricional.sal);
     if (sal === null) return;
 
-    // --- 5. Guardar cambios en el producto ---
     producto.pesoNeto = pesoNeto.trim();
     producto.formato = formato.trim();
     producto.ingredientesES = ingredientesES.trim();

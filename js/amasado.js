@@ -1,24 +1,13 @@
 /**
  * ============================================================
- * MÓDULO: AMASADO
+ * MÓDULO: AMASADO (v2 — Fase 1)
  * ============================================================
- * Responsabilidades:
- *   - Configuración de tipos de bola (9 tipos)
- *   - CRUD de órdenes de amasado
- *   - Distribución de bolas a productos finales
- *   - Clima automático (Guardamar del Segura)
- *   - Fecha de uso previsto editable (por defecto día siguiente)
- *   - Aplicación a producción (inventario del día de uso)
- *   - Acceso a la calculadora de masa
- *   - Renderizado completo de la vista
- * 
- * Dependencias: datos.js, utilidades.js
+ * El amasado solo gestiona BOLAS por tipo (sin distribución por producto).
+ * El campo tipoBola de cada producto es la fuente de verdad.
+ *
+ * Dependencias: datos.js, utilidades.js, productos.js
  * ============================================================
  */
-
-// ============================================================
-// 1. CONFIGURACIÓN DE AMASADO
-// ============================================================
 
 const CONFIGURACION_AMASADO = {
     "Pequeña": {
@@ -90,7 +79,6 @@ const CONFIGURACION_AMASADO = {
         productosDestino: ["Pinsa Mediana"]
     }
 };
-
 function obtenerTiposBola() {
     return Object.keys(CONFIGURACION_AMASADO);
 }
@@ -103,36 +91,76 @@ function generarIdOrdenAmasado(fecha, numero) {
     return `ORD-${fecha.replace(/-/g, '')}-${String(numero).padStart(3, '0')}`;
 }
 
-/**
- * Calcula la fecha de uso por defecto a partir de la fecha de amasado.
- * 
- * Lógica actual: día siguiente.
- * Lógica futura: si el día siguiente es festivo o no laborable,
- *                saltar al siguiente día laborable.
- * 
- * @param {string} fechaAmasado - Fecha en formato YYYY-MM-DD
- * @returns {string} Fecha de uso sugerida (YYYY-MM-DD)
- */
 function calcularFechaUsoPorDefecto(fechaAmasado) {
     return obtenerFechaSiguiente(fechaAmasado);
 }
 
 // ============================================================
-// 2. ACCESO A ÓRDENES
+// MIGRACIÓN: asignar tipoBola a productos
 // ============================================================
 
-/**
- * Devuelve el objeto de todas las órdenes de amasado.
- */
+function construirMapaProductoATipoBola() {
+    const mapa = {};
+    for (const tipoBola in CONFIGURACION_AMASADO) {
+        const destino = CONFIGURACION_AMASADO[tipoBola].productosDestino || [];
+        destino.forEach(prod => {
+            if (!mapa[prod]) mapa[prod] = tipoBola;
+        });
+    }
+    return mapa;
+}
+
+function migrarProductosConTipoBola(datos) {
+    const mapa = construirMapaProductoATipoBola();
+    const sinMapeo = [];
+    let migrados = 0;
+    let cambios = false;
+
+    datos.productos.forEach(p => {
+        if (p.tipoBola) return;
+        const tipo = mapa[p.nombre];
+        if (tipo) {
+            p.tipoBola = tipo;
+            migrados++;
+            cambios = true;
+        } else {
+            p.tipoBola = null;
+            sinMapeo.push(p.nombre);
+            cambios = true;
+        }
+    });
+
+    if (cambios) guardarDatos(datos);
+    if (sinMapeo.length > 0) {
+        console.warn('[amasado] Productos sin tipoBola asignado:', sinMapeo);
+    }
+    return { migrados, sinMapeo };
+}
+
+function migrarAmasadosV2(datos) {
+    const ordenes = datos.ordenesAmasado || {};
+    let cambios = false;
+    for (const fecha in ordenes) {
+        const orden = ordenes[fecha];
+        if (orden.modelo === 'v2') continue;
+        (orden.lineas || []).forEach(l => {
+            delete l.distribucion;
+        });
+        orden.modelo = 'v2';
+        cambios = true;
+    }
+    if (cambios) guardarDatos(datos);
+    return cambios;
+}
+// ============================================================
+// ACCESO A ÓRDENES
+// ============================================================
+
 function obtenerOrdenesAmasado(datos) {
     if (!datos.ordenesAmasado) datos.ordenesAmasado = {};
     return datos.ordenesAmasado;
 }
 
-/**
- * Devuelve la orden de amasado para una fecha.
- * Si no existe, la crea vacía.
- */
 function obtenerOrdenAmasado(datos, fecha) {
     const ordenes = obtenerOrdenesAmasado(datos);
     if (!ordenes[fecha]) {
@@ -147,6 +175,7 @@ function obtenerOrdenAmasado(datos, fecha) {
             temperatura: null,
             humedad: null,
             datosClima: null,
+            modelo: 'v2',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
@@ -154,10 +183,6 @@ function obtenerOrdenAmasado(datos, fecha) {
     return ordenes[fecha];
 }
 
-/**
- * Busca una orden aplicada a producción cuya fecha de uso coincida.
- * Usada por produccion.js para inicializar el inventario del día.
- */
 function buscarOrdenAmasadoPorFechaUso(datos, fecha) {
     const ordenes = datos.ordenesAmasado || {};
     for (const k in ordenes) {
@@ -168,9 +193,6 @@ function buscarOrdenAmasadoPorFechaUso(datos, fecha) {
     return null;
 }
 
-/**
- * Guarda una orden en el conjunto y actualiza updatedAt.
- */
 function persistirOrdenAmasado(datos, fecha, orden) {
     orden.updatedAt = new Date().toISOString();
     datos.ordenesAmasado[fecha] = orden;
@@ -178,12 +200,9 @@ function persistirOrdenAmasado(datos, fecha, orden) {
 }
 
 // ============================================================
-// 3. VALIDACIÓN
+// VALIDACIÓN Y RESUMEN
 // ============================================================
 
-/**
- * Valida una orden de amasado. Devuelve { valida, errores }.
- */
 function validarOrdenAmasado(orden) {
     const errores = [];
     if (!orden) return { valida: false, errores: ['Orden no válida'] };
@@ -195,18 +214,12 @@ function validarOrdenAmasado(orden) {
         if (!l.tipoBola) errores.push(`Línea ${n}: falta tipo de bola`);
         if (!l.peso || l.peso <= 0) errores.push(`Línea ${n}: peso inválido`);
         if (!l.tipoCaja) errores.push(`Línea ${n}: falta tipo de caja`);
-        if (l.cajas < 1) errores.push(`Línea ${n}: cajas debe ser > 0`);
-        if (l.bolasPorCaja < 1) errores.push(`Línea ${n}: bolas/caja debe ser > 0`);
-        const total = l.total || 0;
-        const asignado = l.distribucion ? Object.values(l.distribucion).reduce((a, b) => a + b, 0) : 0;
-        if (asignado !== total) errores.push(`Línea ${n}: faltan ${total - asignado} bolas por asignar`);
+        if (!l.cajas || l.cajas < 1) errores.push(`Línea ${n}: cajas debe ser > 0`);
+        if (!l.bolasPorCaja || l.bolasPorCaja < 1) errores.push(`Línea ${n}: bolas/caja debe ser > 0`);
     });
     return { valida: errores.length === 0, errores };
 }
 
-/**
- * Calcula el resumen total de una orden.
- */
 function obtenerResumenOrdenAmasado(orden) {
     let totalBolas = 0, pesoTotal = 0, totalCajas = 0, totalTorres = 0;
     if (orden?.lineas) {
@@ -225,35 +238,36 @@ function obtenerResumenOrdenAmasado(orden) {
     };
 }
 
+function obtenerStockBolasDeOrden(orden) {
+    const stock = {};
+    (orden?.lineas || []).forEach(l => {
+        const tipo = l.tipoBola;
+        if (!tipo) return;
+        stock[tipo] = (stock[tipo] || 0) + (l.total || 0);
+    });
+    return stock;
+}
+
 // ============================================================
-// 4. CLIMA GUARDAMAR
+// CLIMA
 // ============================================================
 
-/**
- * Devuelve temperatura y humedad aproximadas de Guardamar del Segura.
- * Variación según mes y hora del día.
- */
 function obtenerClimaGuardamar() {
     const hora = new Date().getHours();
     const mes = new Date().getMonth();
-
     const tempPorMes = [12, 13, 15, 18, 21, 25, 28, 29, 26, 22, 17, 13];
     let temp = tempPorMes[mes] || 20;
-
     if (hora >= 6 && hora < 9) temp -= 2;
     else if (hora >= 9 && hora < 12) temp += 1;
     else if (hora >= 12 && hora < 15) temp += 3;
     else if (hora >= 15 && hora < 18) temp += 2;
     else if (hora >= 21 || hora < 6) temp -= 3;
-
     let hum = 60 + Math.floor(Math.random() * 10);
     if (mes >= 6 && mes <= 9) hum += 10;
     if (hora >= 6 && hora < 9) hum += 5;
     if (hora >= 12 && hora < 15) hum -= 5;
-
     temp = Math.round(Math.max(5, Math.min(35, temp)) * 10) / 10;
     hum = Math.round(Math.max(40, Math.min(85, hum)));
-
     return {
         temperatura: temp,
         humedad: hum,
@@ -261,19 +275,10 @@ function obtenerClimaGuardamar() {
         provincia: 'Alicante'
     };
 }
-
 // ============================================================
-// 5. RENDERIZADO DE LA VISTA AMASADO
+// RENDERIZADO
 // ============================================================
 
-/**
- * Renderiza la vista completa de la orden de amasado.
- * 
- * @param {string} fechaParam - (Opcional) Fecha a mostrar en formato YYYY-MM-DD.
- *                              Si no se pasa, se lee del DOM o se usa hoy.
- *                              IMPORTANTE: se pasa desde el onchange del input
- *                              para evitar que el re-render pierda la fecha.
- */
 function renderizarOrdenAmasado(fechaParam) {
     const container = document.getElementById('vista-container');
     container.innerHTML = '<div class="loading">Cargando orden de amasado...</div>';
@@ -282,7 +287,9 @@ function renderizarOrdenAmasado(fechaParam) {
         try {
             const datos = cargarDatos();
 
-            // Prioridad: parámetro > input del DOM > hoy
+            migrarProductosConTipoBola(datos);
+            migrarAmasadosV2(datos);
+
             const fecha = fechaParam
                 || document.getElementById('fecha-amasado')?.value
                 || obtenerFechaActual();
@@ -291,31 +298,15 @@ function renderizarOrdenAmasado(fechaParam) {
             const resumen = obtenerResumenOrdenAmasado(orden);
             const validacion = validarOrdenAmasado(orden);
             const clima = obtenerClimaGuardamar();
-
-            // ¿La fecha de uso actual coincide con el cálculo automático?
             const fechaAuto = calcularFechaUsoPorDefecto(fecha);
             const fechaUsoEsAuto = orden.fechaUso === fechaAuto;
-
-            let todasAsignadas = true;
-            let totalSinAsignar = 0;
-            if (Array.isArray(orden.lineas)) {
-                orden.lineas.forEach(linea => {
-                    const total = linea.total || 0;
-                    const asignado = linea.distribucion
-                        ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
-                    if (asignado !== total) {
-                        todasAsignadas = false;
-                        totalSinAsignar += (total - asignado);
-                    }
-                });
-            }
 
             let html = `
                 <div class="vista active">
                     <div class="vista-header">
                         <div>
                             <h2>🔄 Orden de Amasado</h2>
-                            <span class="subtitle">Producción de masa para el día siguiente</span>
+                            <span class="subtitle">Stock de bolas para el día de uso</span>
                         </div>
                         <div class="flex gap-10" style="align-items: center;">
                             <button class="btn btn-primary btn-sm" onclick="cambiarVista('calculadoraMasa')" title="Abrir calculadora de masa">🧮 Calculadora</button>
@@ -326,7 +317,6 @@ function renderizarOrdenAmasado(fechaParam) {
                         </div>
                     </div>
 
-                    <!-- CABECERA DATOS GENERALES -->
                     <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
                         <div class="form-row">
                             <div class="form-group">
@@ -340,8 +330,8 @@ function renderizarOrdenAmasado(fechaParam) {
                                            onchange="cambiarFechaUsoAmasado(this.value)"
                                            style="flex: 1; font-weight: bold;" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
                                     ${!orden.aplicadoAProduccion ? `
-                                        <button class="btn btn-secondary btn-sm" onclick="restaurarFechaUsoPorDefecto()" 
-                                                title="Volver al cálculo automático (día siguiente)" 
+                                        <button class="btn btn-secondary btn-sm" onclick="restaurarFechaUsoPorDefecto()"
+                                                title="Volver al cálculo automático (día siguiente)"
                                                 style="padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">↺ Auto</button>
                                     ` : ''}
                                 </div>
@@ -363,7 +353,6 @@ function renderizarOrdenAmasado(fechaParam) {
                         </div>
                     </div>
 
-                    <!-- TABLA DE LÍNEAS -->
                     <div class="tabla-container">
                         <div class="flex-between mb-10">
                             <h3>📦 Bolas a Amasar</h3>
@@ -401,9 +390,6 @@ function renderizarOrdenAmasado(fechaParam) {
                 orden.lineas.forEach((linea, index) => {
                     const config = obtenerConfiguracionBola(linea.tipoBola);
                     const total = linea.total || 0;
-                    const asignado = linea.distribucion
-                        ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
-                    const estado = asignado === total ? '✅' : '⚠️';
                     const cfgCaja = config?.configuraciones.find(c => c.tipoCaja === linea.tipoCaja);
 
                     html += `
@@ -427,7 +413,7 @@ function renderizarOrdenAmasado(fechaParam) {
                                     </select>
                                 `}
                             </td>
-                            <td><strong>${total}</strong> ${estado}</td>
+                            <td><strong>${total}</strong></td>
                             <td>
                                 ${!orden.aplicadoAProduccion ? `
                                     <button class="btn btn-success btn-sm" onclick="duplicarLineaAmasado(${index})" title="Duplicar" style="background: #28a745; margin-right: 4px;">📋</button>
@@ -438,68 +424,11 @@ function renderizarOrdenAmasado(fechaParam) {
                     `;
                 });
             }
-
-            html += `
+                        html += `
                             </tbody>
                         </table>
                     </div>
 
-                    <!-- DISTRIBUCIÓN -->
-                    <div style="margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                        <div class="flex-between mb-10">
-                            <h3>📦 Distribución a Productos Finales</h3>
-                            <span style="font-size: 0.9rem; color: ${todasAsignadas ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-global">
-                                ${todasAsignadas ? '✅ Todas las bolas asignadas' : `⚠️ ${totalSinAsignar} bolas sin asignar`}
-                            </span>
-                        </div>
-            `;
-
-            if (orden.lineas && orden.lineas.length > 0) {
-                orden.lineas.forEach((linea, index) => {
-                    const config = obtenerConfiguracionBola(linea.tipoBola);
-                    const total = linea.total || 0;
-                    const productosDestino = config ? config.productosDestino : [];
-                    const asignado = linea.distribucion
-                        ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
-                    const restante = total - asignado;
-
-                    html += `
-                        <div style="border: 1px solid #eee; padding: 15px; border-radius: 8px; margin-top: 10px; background: ${restante === 0 && total > 0 ? '#F0FFF0' : '#FFF8F8'};">
-                            <h4>${escaparHTML(linea.tipoBola)} (${linea.peso}g) — Total: ${total} bolas</h4>
-                            <div class="form-row">
-                    `;
-                    productosDestino.forEach(producto => {
-                        const valor = linea.distribucion?.[producto] || 0;
-                        html += `
-                            <div class="form-group">
-                                <label>${escaparHTML(producto)}</label>
-                                <input type="number" min="0" step="1"
-                                       style="width: 80px;" value="${valor}"
-                                       onblur="actualizarDistribucion(${index}, '${producto.replace(/'/g, "\\'")}', this.value)"
-                                       ${orden.aplicadoAProduccion ? 'disabled' : ''}>
-                            </div>
-                        `;
-                    });
-                    html += `
-                            </div>
-                            <div style="margin-top: 10px; font-weight: bold; color: ${restante === 0 ? 'var(--success)' : 'var(--error)'};" class="estado-distribucion-${index}">
-                                ${restante === 0 ? '✅ Todas las bolas asignadas' : `🔴 Restante sin asignar: ${restante} bolas`}
-                            </div>
-                        </div>
-                    `;
-                });
-            } else {
-                html += `
-                    <div style="padding: 20px; color: #999; text-align: center;">
-                        Añade líneas de amasado para distribuir las bolas a productos.
-                    </div>
-                `;
-            }
-
-            html += `
-                    </div>
-
-                    <!-- RESUMEN -->
                     <div class="resumen-grid" style="margin-top: 20px;">
                         <div class="resumen-card">
                             <div class="label">Total Bolas</div>
@@ -519,9 +448,8 @@ function renderizarOrdenAmasado(fechaParam) {
                         </div>
                     </div>
 
-                    <!-- VALIDACIÓN -->
                     ${!orden.aplicadoAProduccion ? `
-                        <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};" class="validacion-orden">
+                        <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};">
                             ${validacion.valida
                                 ? '✅ La orden está completa y lista para aplicar a producción'
                                 : '❌ ' + validacion.errores.map(escaparHTML).join('. ')
@@ -529,7 +457,6 @@ function renderizarOrdenAmasado(fechaParam) {
                         </div>
                     ` : ''}
 
-                    <!-- BOTONES DE ACCIÓN -->
                     <div class="flex gap-10" style="margin-top: 20px; flex-wrap: wrap;">
                         ${!orden.aplicadoAProduccion ? `
                             <button class="btn btn-primary" onclick="guardarOrdenAmasado()">💾 Guardar Orden</button>
@@ -552,8 +479,8 @@ function renderizarOrdenAmasado(fechaParam) {
                     ` : `
                         <div style="margin-top: 15px; padding: 15px; background: #FFF8E1; border-radius: 8px; border-left: 4px solid var(--warning);">
                             <p style="font-size: 0.9rem; color: #666;">
-                                ℹ️ <strong>Nota:</strong> La orden se aplicará al inventario de producción del día <strong>${formatearFechaLarga(orden.fechaUso)}</strong>.
-                                Asegúrate de que todas las bolas estén distribuidas correctamente antes de aplicar.
+                                ℹ️ <strong>Nota:</strong> La orden se aplicará como stock de bolas al día <strong>${formatearFechaLarga(orden.fechaUso)}</strong>.
+                                La asignación de bolas a productos se hace desde Producción.
                             </p>
                         </div>
                     `}
@@ -576,49 +503,33 @@ function renderizarOrdenAmasado(fechaParam) {
         }
     }, 50);
 }
-
 // ============================================================
-// 5.1 FECHA DE USO EDITABLE
+// FECHA DE USO
 // ============================================================
 
-/**
- * Cambia la fecha de uso previsto de la orden actual y re-renderiza.
- * Se dispara desde el onchange del input #fecha-uso.
- * 
- * @param {string} nuevaFecha - Fecha seleccionada (YYYY-MM-DD)
- */
 function cambiarFechaUsoAmasado(nuevaFecha) {
     if (!nuevaFecha) return;
-
     const datos = cargarDatos();
     const fechaAmasado = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fechaAmasado);
-
     if (orden.aplicadoAProduccion) {
         mostrarNotificacion('⚠️ No se puede cambiar: la orden ya está aplicada', 'warning');
         return;
     }
-
     orden.fechaUso = nuevaFecha;
     persistirOrdenAmasado(datos, fechaAmasado, orden);
     renderizarOrdenAmasado(fechaAmasado);
     mostrarNotificacion(`✅ Fecha de uso actualizada al ${formatearFechaLarga(nuevaFecha)}`, 'success');
 }
 
-/**
- * Restaura la fecha de uso al cálculo automático por defecto (día siguiente).
- * Se dispara desde el botón "↺ Auto".
- */
 function restaurarFechaUsoPorDefecto() {
     const datos = cargarDatos();
     const fechaAmasado = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const orden = obtenerOrdenAmasado(datos, fechaAmasado);
-
     if (orden.aplicadoAProduccion) {
         mostrarNotificacion('⚠️ No se puede cambiar: la orden ya está aplicada', 'warning');
         return;
     }
-
     const fechaAuto = calcularFechaUsoPorDefecto(fechaAmasado);
     orden.fechaUso = fechaAuto;
     persistirOrdenAmasado(datos, fechaAmasado, orden);
@@ -627,12 +538,9 @@ function restaurarFechaUsoPorDefecto() {
 }
 
 // ============================================================
-// 6. CRUD DE LÍNEAS DE AMASADO
+// CRUD DE LÍNEAS
 // ============================================================
 
-/**
- * Añade una línea nueva mediante prompts secuenciales.
- */
 function mostrarModalLineaAmasado() {
     const tipos = obtenerTiposBola();
 
@@ -692,10 +600,8 @@ function mostrarModalLineaAmasado() {
         tipoCaja: cfgCaja.tipoCaja,
         cajas,
         bolasPorCaja: bolas,
-        total: cajas * bolas,
-        distribucion: {}
+        total: cajas * bolas
     };
-    config.productosDestino.forEach(p => nuevaLinea.distribucion[p] = 0);
     orden.lineas.push(nuevaLinea);
 
     guardarDatos(datos);
@@ -738,23 +644,6 @@ function actualizarLineaAmasado(i, c, v) {
     actualizarLineaAmasadoDebounce(i, c, v);
 }
 
-const actualizarDistribucionDebounce = debounce(function(index, producto, valor) {
-    const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
-    const orden = obtenerOrdenAmasado(datos, fecha);
-    if (index >= orden.lineas.length) return;
-
-    const l = orden.lineas[index];
-    if (!l.distribucion) l.distribucion = {};
-    l.distribucion[producto] = parseInt(valor) || 0;
-    guardarDatos(datos);
-    actualizarEstadoDistribucion();
-}, 300);
-
-function actualizarDistribucion(i, p, v) {
-    actualizarDistribucionDebounce(i, p, v);
-}
-
 function eliminarLineaAmasado(index) {
     if (!confirm('⚠️ ¿Eliminar esta línea?')) return;
     const datos = cargarDatos();
@@ -773,6 +662,7 @@ function duplicarLineaAmasado(index) {
     const orden = obtenerOrdenAmasado(datos, fecha);
     if (index >= orden.lineas.length) return;
     const copia = clonarProfundo(orden.lineas[index]);
+    delete copia.distribucion;
     orden.lineas.splice(index + 1, 0, copia);
     guardarDatos(datos);
     renderizarOrdenAmasado(fecha);
@@ -789,78 +679,18 @@ function duplicarTodasLineasAmasado() {
         return;
     }
     const originales = clonarProfundo(orden.lineas);
-    originales.forEach(l => orden.lineas.push(l));
+    originales.forEach(l => {
+        delete l.distribucion;
+        orden.lineas.push(l);
+    });
     guardarDatos(datos);
     renderizarOrdenAmasado(fecha);
     mostrarNotificacion('✅ Líneas duplicadas', 'success');
 }
-
 // ============================================================
-// 7. ACTUALIZACIÓN DE ESTADOS EN VIVO
-// ============================================================
-
-/**
- * Actualiza solo los indicadores de distribución sin re-render completo.
- */
-function actualizarEstadoDistribucion() {
-    const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
-    const orden = obtenerOrdenAmasado(datos, fecha);
-
-    let todasAsignadas = true;
-    let totalSinAsignar = 0;
-
-    if (Array.isArray(orden.lineas)) {
-        orden.lineas.forEach((linea, index) => {
-            const total = linea.total || 0;
-            const asignado = linea.distribucion
-                ? Object.values(linea.distribucion).reduce((a, b) => a + b, 0) : 0;
-            const restante = total - asignado;
-
-            if (asignado !== total) {
-                todasAsignadas = false;
-                totalSinAsignar += restante;
-            }
-
-            const el = document.querySelector(`.estado-distribucion-${index}`);
-            if (el) {
-                el.textContent = restante === 0 && total > 0
-                    ? '✅ Todas las bolas asignadas'
-                    : `🔴 Restante sin asignar: ${restante} bolas`;
-                el.style.color = restante === 0 ? 'var(--success)' : 'var(--error)';
-            }
-        });
-    }
-
-    const globalEl = document.querySelector('.estado-distribucion-global');
-    if (globalEl) {
-        globalEl.textContent = todasAsignadas
-            ? '✅ Todas las bolas asignadas'
-            : `⚠️ ${totalSinAsignar} bolas sin asignar`;
-        globalEl.style.color = todasAsignadas ? 'var(--success)' : 'var(--error)';
-    }
-
-    const valDiv = document.querySelector('.validacion-orden');
-    if (valDiv) {
-        if (todasAsignadas) {
-            valDiv.innerHTML = '✅ La orden está completa y lista para aplicar a producción';
-            valDiv.style.background = '#E8F5E9';
-            valDiv.style.borderLeftColor = 'var(--success)';
-        } else {
-            valDiv.innerHTML = `❌ Faltan ${totalSinAsignar} bolas por asignar`;
-            valDiv.style.background = '#FFF3E0';
-            valDiv.style.borderLeftColor = 'var(--error)';
-        }
-    }
-}
-
-// ============================================================
-// 8. GUARDAR / APLICAR / DESAPLICAR / ELIMINAR
+// GUARDAR / APLICAR / DESAPLICAR / ELIMINAR
 // ============================================================
 
-/**
- * Guarda la orden (con clima automático) y valida.
- */
 function guardarOrdenAmasado() {
     try {
         const datos = cargarDatos();
@@ -895,9 +725,6 @@ function guardarOrdenAmasado() {
     }
 }
 
-/**
- * Aplica la orden al inventario de producción del día de uso.
- */
 function aplicarOrdenAProduccionUI() {
     try {
         const datos = cargarDatos();
@@ -921,18 +748,37 @@ function aplicarOrdenAProduccionUI() {
             datos.produccion[fechaUso] = { inventarioInicial: {}, horasTrabajadas: 0, pedidos: [] };
         }
 
+        // v2: stock de bolas por tipo
+        const stockBolas = {};
+        orden.lineas.forEach(l => {
+            const tipo = l.tipoBola;
+            if (!tipo) return;
+            stockBolas[tipo] = (stockBolas[tipo] || 0) + (l.total || 0);
+        });
+        datos.produccion[fechaUso].inventarioBolas = stockBolas;
+
+        // Compatibilidad v1: rellenar inventarioInicial por producto usando tipoBola del producto
         const inv = {};
         orden.lineas.forEach(l => {
-            if (l.distribucion) {
-                Object.keys(l.distribucion).forEach(prod => {
-                    const c = l.distribucion[prod] || 0;
-                    if (c > 0) inv[prod] = (inv[prod] || 0) + c;
-                });
-            }
+            const tipo = l.tipoBola;
+            if (!tipo) return;
+            const totalBolas = l.total || 0;
+            // Distribuir bolas entre los productos de ese tipo
+            const productosDeEsteTipo = datos.productos.filter(p =>
+                p.tipoBola === tipo && p.activo !== false
+            );
+            if (productosDeEsteTipo.length === 0) return;
+            // Reparto simple: a partes iguales
+            const porProducto = Math.floor(totalBolas / productosDeEsteTipo.length);
+            const resto = totalBolas - porProducto * productosDeEsteTipo.length;
+            productosDeEsteTipo.forEach((p, i) => {
+                const cant = porProducto + (i < resto ? 1 : 0);
+                if (cant > 0) inv[p.nombre] = (inv[p.nombre] || 0) + cant;
+            });
         });
-
         datos.produccion[fechaUso].inventarioInicial = inv;
         datos.produccion[fechaUso].inventarioDesdeAmasado = true;
+
         orden.aplicadoAProduccion = true;
         orden.aplicadoEn = new Date().toISOString();
 
@@ -945,9 +791,6 @@ function aplicarOrdenAProduccionUI() {
     }
 }
 
-/**
- * Deshace la aplicación de la orden a producción.
- */
 function desaplicarOrdenAmasado() {
     if (!confirm('⚠️ ¿Deshacer la aplicación a producción?')) return;
     const datos = cargarDatos();
@@ -960,6 +803,7 @@ function desaplicarOrdenAmasado() {
     const fechaUso = orden.fechaUso;
     if (datos.produccion?.[fechaUso]) {
         datos.produccion[fechaUso].inventarioInicial = {};
+        datos.produccion[fechaUso].inventarioBolas = {};
         delete datos.produccion[fechaUso].inventarioDesdeAmasado;
     }
     orden.aplicadoAProduccion = false;
@@ -969,9 +813,6 @@ function desaplicarOrdenAmasado() {
     renderizarOrdenAmasado(fecha);
 }
 
-/**
- * Elimina la orden de amasado de la fecha actual.
- */
 function eliminarOrdenAmasado() {
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const datos = cargarDatos();
@@ -989,9 +830,6 @@ function eliminarOrdenAmasado() {
     renderizarOrdenAmasado(fecha);
 }
 
-/**
- * Navega a la vista de producción en la fecha de uso de esta orden.
- */
 function verProduccionDesdeAmasado() {
     const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
     const datos = cargarDatos();
@@ -1008,7 +846,7 @@ function verProduccionDesdeAmasado() {
 }
 
 // ============================================================
-// 9. EXPORTAR CSV
+// EXPORTAR CSV
 // ============================================================
 
 function exportarOrdenAmasado() {
@@ -1026,13 +864,10 @@ function exportarOrdenAmasado() {
     csv += `Fecha Uso: ${orden.fechaUso}\n`;
     csv += `Total Bolas: ${orden.totalBolas || 0}\n`;
     csv += `Peso Total: ${orden.pesoTotal || 0} kg\n\n`;
-    csv += 'Tipo Bola,Peso,Caja,Cajas,Bolas/Caja,Total Bolas,Distribución\n';
+    csv += 'Tipo Bola,Peso,Caja,Cajas,Bolas/Caja,Total Bolas\n';
 
     orden.lineas.forEach(linea => {
-        const distribucion = linea.distribucion
-            ? Object.entries(linea.distribucion).map(([k, v]) => `${k}: ${v}`).join(' | ')
-            : 'Sin asignar';
-        csv += `${linea.tipoBola},${linea.peso},${linea.tipoCaja},${linea.cajas},${linea.bolasPorCaja},${linea.total},"${distribucion}"\n`;
+        csv += `${linea.tipoBola},${linea.peso},${linea.tipoCaja},${linea.cajas},${linea.bolasPorCaja},${linea.total}\n`;
     });
 
     try {

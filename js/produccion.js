@@ -159,6 +159,108 @@ function calcularTotalPedido(productos) {
 }
 
 // ============================================================
+// 3.1 STOCK DE BOLAS (v2)
+// ============================================================
+
+/**
+ * Devuelve el stock de bolas inicial por tipo para una fecha.
+ * Prioriza produccion.inventarioBolas (v2). Si no existe,
+ * lo intenta derivar del amasado aplicado o del día anterior.
+ */
+function obtenerStockBolasInicial(datos, fecha) {
+    const produccion = obtenerProduccionDia(datos, fecha);
+
+    if (produccion.inventarioBolas && Object.keys(produccion.inventarioBolas).length > 0) {
+        return { ...produccion.inventarioBolas };
+    }
+
+    // Derivar de la orden de amasado aplicada
+    const ordenAmasado = buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha);
+    if (ordenAmasado && typeof obtenerStockBolasDeOrden === 'function') {
+        const stock = obtenerStockBolasDeOrden(ordenAmasado);
+        produccion.inventarioBolas = stock;
+        produccion.inventarioDesdeAmasado = true;
+        guardarDatos(datos);
+        return { ...stock };
+    }
+
+    // Heredar del día anterior
+    const fechaAnt = new Date(fecha);
+    fechaAnt.setDate(fechaAnt.getDate() - 1);
+    const fechaAntStr = fechaAnt.toISOString().split('T')[0];
+    const prodAnt = datos.produccion[fechaAntStr];
+    if (prodAnt && prodAnt.inventarioBolas) {
+        produccion.inventarioBolas = { ...prodAnt.inventarioBolas };
+        guardarDatos(datos);
+        return { ...produccion.inventarioBolas };
+    }
+
+    return {};
+}
+
+/**
+ * Calcula el consumo de bolas por tipo según los pedidos del día.
+ * Usa producto.tipoBola como fuente de verdad.
+ * Devuelve { tipoBola: cantidadConsumida, ... }
+ */
+function calcularConsumoBolas(datos, fecha) {
+    const produccion = obtenerProduccionDia(datos, fecha);
+    const consumo = {};
+
+    (produccion.pedidos || []).forEach(pedido => {
+        if (!pedido.productos) return;
+        Object.keys(pedido.productos).forEach(nombreProd => {
+            const cant = parseFloat(pedido.productos[nombreProd]) || 0;
+            if (cant <= 0) return;
+
+            // Buscar el producto para saber su tipoBola
+            const producto = datos.productos.find(p => p.nombre === nombreProd);
+            const tipo = producto?.tipoBola;
+            if (!tipo) return; // producto sin tipoBola → no descuenta stock
+
+            consumo[tipo] = (consumo[tipo] || 0) + cant;
+        });
+    });
+
+    return consumo;
+}
+
+/**
+ * Devuelve el estado del stock de bolas para una fecha:
+ *   [{ tipo, inicial, consumido, restante, deficit }, ...]
+ * Ordenado por tipo. deficit = true si restante < 0.
+ */
+function calcularEstadoStockBolas(datos, fecha) {
+    const inicial = obtenerStockBolasInicial(datos, fecha);
+    const consumo = calcularConsumoBolas(datos, fecha);
+
+    // Unir claves de ambos objetos
+    const tipos = new Set([...Object.keys(inicial), ...Object.keys(consumo)]);
+
+    const resultado = [];
+    tipos.forEach(tipo => {
+        const ini = inicial[tipo] || 0;
+        const con = consumo[tipo] || 0;
+        const rest = ini - con;
+        resultado.push({
+            tipo,
+            inicial: ini,
+            consumido: con,
+            restante: rest,
+            deficit: rest < 0
+        });
+    });
+
+    // Ordenar: primero los que tienen déficit, luego por cantidad restante
+    resultado.sort((a, b) => {
+        if (a.deficit !== b.deficit) return a.deficit ? -1 : 1;
+        return a.tipo.localeCompare(b.tipo);
+    });
+
+    return resultado;
+}
+
+// ============================================================
 // 4. RENDERIZADO COMPLETO DE LA VISTA PRODUCCIÓN
 // ============================================================
 
@@ -393,6 +495,83 @@ function renderizarProduccion(fechaParam) {
                         </tr>
                     `;
                 });
+            }
+
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+                        html += `
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- ============================================
+                         v2: STOCK DE BOLAS
+                         ============================================ -->
+                    <div class="vista-header" style="margin-top: 20px;">
+                        <h3>🍕 Stock de Bolas</h3>
+                    </div>
+                    <div class="tabla-container">
+                        <table id="tabla-stock-bolas">
+                            <thead>
+                                <tr>
+                                    <th>Tipo Bola</th>
+                                    <th>Inicial</th>
+                                    <th>Consumido</th>
+                                    <th>Restante</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+
+            const estadoBolas = calcularEstadoStockBolas(datos, fecha);
+
+            if (estadoBolas.length === 0) {
+                html += `
+                    <tr>
+                        <td colspan="4" class="text-center" style="padding: 20px; color: #999;">
+                            Sin stock de bolas para este día (aplica una orden de amasado o ajusta manualmente)
+                        </td>
+                    </tr>
+                `;
+            } else {
+                estadoBolas.forEach(fila => {
+                    const colorFila = fila.deficit ? 'background: #FFEBEE;' : '';
+                    const colorRestante = fila.deficit
+                        ? 'color: var(--error); font-weight: bold;'
+                        : fila.restante === 0
+                            ? 'color: var(--warning); font-weight: bold;'
+                            : 'color: var(--success); font-weight: bold;';
+
+                    html += `
+                        <tr style="${colorFila}">
+                            <td><strong>${escaparHTML(fila.tipo)}</strong></td>
+                            <td>${fila.inicial}</td>
+                            <td>${fila.consumido}</td>
+                            <td style="${colorRestante}">
+                                ${fila.restante}
+                                ${fila.deficit ? ' ⚠️' : ''}
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+            // Aviso global si hay déficit
+            const hayDeficit = estadoBolas.some(f => f.deficit);
+            if (hayDeficit) {
+                const tiposConDeficit = estadoBolas.filter(f => f.deficit).map(f => f.tipo).join(', ');
+                html += `
+                    <tr>
+                        <td colspan="4" style="background: #FFEBEE; color: #C62828; padding: 10px; font-size: 0.85rem;">
+                            ⚠️ <strong>Déficit de bolas:</strong> ${escaparHTML(tiposConDeficit)}. Revisa los pedidos o ajusta el amasado.
+                        </td>
+                    </tr>
+                `;
             }
 
             html += `

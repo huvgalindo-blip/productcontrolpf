@@ -1,90 +1,30 @@
 /**
  * ============================================================
- * MÓDULO: AMASADO (v2 — Fase 1)
+ * MÓDULO: AMASADO (v3)
  * ============================================================
- * El amasado solo gestiona BOLAS por tipo (sin distribución por producto).
- * El campo tipoBola de cada producto es la fuente de verdad.
+ * Cambios v3:
+ *   - Los tipos de bola se leen desde datos.tiposBola (editables)
+ *   - El amasado solo gestiona BOLAS por tipo (sin distribución)
+ *   - Migración automática de tipos y de productos
  *
  * Dependencias: datos.js, utilidades.js, productos.js
  * ============================================================
  */
 
-const CONFIGURACION_AMASADO = {
-    "Pequeña": {
-        peso: 160,
-        configuraciones: [
-            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8, 10, 11] },
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10, 11] }
-        ],
-        productosDestino: ["Pequeña", "M.Refinata", "Pequeña 25", "Allar 24x15"]
-    },
-    "Peq 190": {
-        peso: 190,
-        configuraciones: [
-            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8, 10, 11] },
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10, 11] }
-        ],
-        productosDestino: ["Peq 190", "cuad. 28x28"]
-    },
-    "Mediana": {
-        peso: 260,
-        configuraciones: [
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10] },
-            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] }
-        ],
-        productosDestino: ["Mediana", "Med.28", "P.Americana", "G.Refinata", "Med.32", "Allar 30x18"]
-    },
-    "Grande": {
-        peso: 460,
-        configuraciones: [
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [6] }
-        ],
-        productosDestino: ["Grande", "Med. America"]
-    },
-    "Plancha": {
-        peso: 600,
-        configuraciones: [
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [3] }
-        ],
-        productosDestino: ["Plancha", "G.America", "Grand 50"]
-    },
-    "Single": {
-        peso: 110,
-        configuraciones: [
-            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [15] }
-        ],
-        productosDestino: ["Single", "Piadina"]
-    },
-    "Grande 360": {
-        peso: 360,
-        configuraciones: [
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [6] }
-        ],
-        productosDestino: ["Med.35"]
-    },
-    "Pinsa Pequeña": {
-        peso: 160,
-        configuraciones: [
-            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] },
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8] }
-        ],
-        productosDestino: ["Pinsa Pequeña"]
-    },
-    "Pinsa Mediana": {
-        peso: 260,
-        configuraciones: [
-            { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8] },
-            { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] }
-        ],
-        productosDestino: ["Pinsa Mediana"]
-    }
-};
+// ============================================================
+// 1. ACCESO A TIPOS DE BOLA
+// ============================================================
+
 function obtenerTiposBola() {
-    return Object.keys(CONFIGURACION_AMASADO);
+    const datos = cargarDatos();
+    const tipos = datos.tiposBola || {};
+    return Object.keys(tipos);
 }
 
 function obtenerConfiguracionBola(tipo) {
-    return CONFIGURACION_AMASADO[tipo] || null;
+    const datos = cargarDatos();
+    const tipos = datos.tiposBola || {};
+    return tipos[tipo] || null;
 }
 
 function generarIdOrdenAmasado(fecha, numero) {
@@ -96,13 +36,15 @@ function calcularFechaUsoPorDefecto(fechaAmasado) {
 }
 
 // ============================================================
-// MIGRACIÓN: asignar tipoBola a productos
+// 2. MIGRACIÓN DE TIPOS Y PRODUCTOS
 // ============================================================
 
 function construirMapaProductoATipoBola() {
+    const datos = cargarDatos();
+    const tipos = datos.tiposBola || {};
     const mapa = {};
-    for (const tipoBola in CONFIGURACION_AMASADO) {
-        const destino = CONFIGURACION_AMASADO[tipoBola].productosDestino || [];
+    for (const tipoBola in tipos) {
+        const destino = tipos[tipoBola].productosDestino || [];
         destino.forEach(prod => {
             if (!mapa[prod]) mapa[prod] = tipoBola;
         });
@@ -152,8 +94,9 @@ function migrarAmasadosV2(datos) {
     if (cambios) guardarDatos(datos);
     return cambios;
 }
+
 // ============================================================
-// ACCESO A ÓRDENES
+// 3. ACCESO A ÓRDENES
 // ============================================================
 
 function obtenerOrdenesAmasado(datos) {
@@ -200,7 +143,7 @@ function persistirOrdenAmasado(datos, fecha, orden) {
 }
 
 // ============================================================
-// VALIDACIÓN Y RESUMEN
+// 4. VALIDACIÓN Y RESUMEN
 // ============================================================
 
 function validarOrdenAmasado(orden) {
@@ -249,7 +192,7 @@ function obtenerStockBolasDeOrden(orden) {
 }
 
 // ============================================================
-// CLIMA
+// 5. CLIMA
 // ============================================================
 
 function obtenerClimaGuardamar() {
@@ -275,8 +218,9 @@ function obtenerClimaGuardamar() {
         provincia: 'Alicante'
     };
 }
+
 // ============================================================
-// RENDERIZADO
+// 6. RENDERIZADO
 // ============================================================
 
 function renderizarOrdenAmasado(fechaParam) {
@@ -424,7 +368,8 @@ function renderizarOrdenAmasado(fechaParam) {
                     `;
                 });
             }
-                        html += `
+
+            html += `
                             </tbody>
                         </table>
                     </div>
@@ -503,8 +448,9 @@ function renderizarOrdenAmasado(fechaParam) {
         }
     }, 50);
 }
+
 // ============================================================
-// FECHA DE USO
+// 7. FECHA DE USO
 // ============================================================
 
 function cambiarFechaUsoAmasado(nuevaFecha) {
@@ -538,11 +484,16 @@ function restaurarFechaUsoPorDefecto() {
 }
 
 // ============================================================
-// CRUD DE LÍNEAS
+// 8. CRUD DE LÍNEAS
 // ============================================================
 
 function mostrarModalLineaAmasado() {
     const tipos = obtenerTiposBola();
+
+    if (tipos.length === 0) {
+        mostrarNotificacion('⚠️ No hay tipos de bola definidos. Crea uno en Productos primero.', 'warning');
+        return;
+    }
 
     let msg = 'Selecciona el tipo de bola:\n';
     tipos.forEach((t, i) => { msg += `${i+1}. ${t}\n`; });
@@ -558,6 +509,10 @@ function mostrarModalLineaAmasado() {
 
     const tipo = tipos[idx];
     const config = obtenerConfiguracionBola(tipo);
+    if (!config || !Array.isArray(config.configuraciones) || config.configuraciones.length === 0) {
+        mostrarNotificacion('❌ Este tipo de bola no tiene configuraciones válidas', 'error');
+        return;
+    }
 
     let msgCaja = 'Selecciona tipo de caja:\n';
     config.configuraciones.forEach((c, i) => {
@@ -687,8 +642,9 @@ function duplicarTodasLineasAmasado() {
     renderizarOrdenAmasado(fecha);
     mostrarNotificacion('✅ Líneas duplicadas', 'success');
 }
+
 // ============================================================
-// GUARDAR / APLICAR / DESAPLICAR / ELIMINAR
+// 9. GUARDAR / APLICAR / DESAPLICAR / ELIMINAR
 // ============================================================
 
 function guardarOrdenAmasado() {
@@ -748,7 +704,6 @@ function aplicarOrdenAProduccionUI() {
             datos.produccion[fechaUso] = { inventarioInicial: {}, horasTrabajadas: 0, pedidos: [] };
         }
 
-        // v2: stock de bolas por tipo
         const stockBolas = {};
         orden.lineas.forEach(l => {
             const tipo = l.tipoBola;
@@ -757,18 +712,15 @@ function aplicarOrdenAProduccionUI() {
         });
         datos.produccion[fechaUso].inventarioBolas = stockBolas;
 
-        // Compatibilidad v1: rellenar inventarioInicial por producto usando tipoBola del producto
         const inv = {};
         orden.lineas.forEach(l => {
             const tipo = l.tipoBola;
             if (!tipo) return;
             const totalBolas = l.total || 0;
-            // Distribuir bolas entre los productos de ese tipo
             const productosDeEsteTipo = datos.productos.filter(p =>
                 p.tipoBola === tipo && p.activo !== false
             );
             if (productosDeEsteTipo.length === 0) return;
-            // Reparto simple: a partes iguales
             const porProducto = Math.floor(totalBolas / productosDeEsteTipo.length);
             const resto = totalBolas - porProducto * productosDeEsteTipo.length;
             productosDeEsteTipo.forEach((p, i) => {
@@ -846,7 +798,7 @@ function verProduccionDesdeAmasado() {
 }
 
 // ============================================================
-// EXPORTAR CSV
+// 10. EXPORTAR CSV
 // ============================================================
 
 function exportarOrdenAmasado() {
@@ -885,3 +837,4 @@ function exportarOrdenAmasado() {
         mostrarNotificacion('❌ Error al exportar CSV', 'error');
     }
 }
+// ⬇️ CONTINÚA EN EL BLOQUE 2 ⬇️

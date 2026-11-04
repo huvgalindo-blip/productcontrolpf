@@ -1,15 +1,14 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCTOS (v2)
+ * MÓDULO: PRODUCTOS (v3)
  * ============================================================
- * Cambios v2:
- *   - Campo tipoBola obligatorio en cada producto
- *   - Formulario con <select> de tipo de bola
- *   - Columna "Tipo Bola" en la tabla
- *   - Migración automática al cargar la lista
- *   - Aviso visual si un producto no tiene tipoBola
+ * Cambios v3:
+ *   - Botón "➕ Crear nuevo tipo" junto al select de tipo de bola
+ *   - Modal para crear tipos nuevos (nombre, peso, caja, bolas)
+ *   - Los tipos se guardan en datos.tiposBola
+ *   - Al crear un tipo nuevo, se selecciona automáticamente
  *
- * Dependencias: datos.js, utilidades.js, amasado.js
+ * Dependencias: datos.js, utilidades.js
  * ============================================================
  */
 
@@ -44,33 +43,6 @@ function asegurarEstructuraProducto(producto) {
     return Object.assign({}, plantilla, producto);
 }
 
-/**
- * Rellena tipoBola de los productos que no lo tengan usando
- * el mapa derivado de CONFIGURACION_AMASADO.
- * Idempotente.
- */
-function migrarProductosSinTipoBola(datos) {
-    const productosSinTipo = datos.productos.filter(
-        p => p.tipoBola === null || p.tipoBola === undefined
-    );
-    if (productosSinTipo.length === 0) return 0;
-
-    // Intentar resolver por nombre contra el mapa de amasado
-    if (typeof construirMapaProductoATipoBola === 'function') {
-        const mapa = construirMapaProductoATipoBola();
-        let migrados = 0;
-        productosSinTipo.forEach(p => {
-            if (mapa[p.nombre]) {
-                p.tipoBola = mapa[p.nombre];
-                migrados++;
-            }
-        });
-        if (migrados > 0) guardarDatos(datos);
-        return migrados;
-    }
-    return 0;
-}
-
 // ============================================================
 // 2. CONSULTAS DE PRODUCTOS
 // ============================================================
@@ -93,31 +65,176 @@ function obtenerProductoPorNombre(datos, nombre) {
     return datos.productos.find(p => p.nombre === nombre && p.activo) || null;
 }
 
+/**
+ * Devuelve la lista de nombres de tipos de bola desde datos.tiposBola.
+ * Si no existe, devuelve array vacío.
+ */
 function obtenerTiposBolaDisponibles() {
-    if (typeof obtenerTiposBola === 'function') {
-        return obtenerTiposBola();
-    }
-    return [];
+    const datos = cargarDatos();
+    const tipos = datos.tiposBola || {};
+    return Object.keys(tipos);
 }
+
 // ============================================================
-// 3. RENDERIZADO DE LA VISTA PRODUCTOS
+// 3. CREAR TIPO DE BOLA NUEVO (modal)
+// ============================================================
+
+/**
+ * Abre un modal para crear un tipo de bola nuevo.
+ * Al guardar, lo añade a datos.tiposBola y lo selecciona en el formulario.
+ */
+function abrirModalNuevoTipoBola() {
+    // Crear el HTML del modal
+    const modalHTML = `
+        <div id="modal-tipo-bola" style="
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 9999;
+            display: flex; align-items: center; justify-content: center;
+        ">
+            <div style="
+                background: white; padding: 25px; border-radius: 10px;
+                max-width: 500px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            ">
+                <h3 style="margin-bottom: 15px; color: var(--secondary);">➕ Crear nuevo tipo de bola</h3>
+
+                <div class="form-group">
+                    <label for="ntb-nombre">Nombre del tipo *</label>
+                    <input type="text" id="ntb-nombre" placeholder="Ej: Espelta Pequeña" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                </div>
+
+                <div class="form-group">
+                    <label for="ntb-peso">Peso por bola (g) *</label>
+                    <input type="number" id="ntb-peso" min="1" step="1" placeholder="Ej: 150" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                </div>
+
+                <div class="form-group">
+                    <label for="ntb-tipoCaja">Tipo de caja *</label>
+                    <select id="ntb-tipoCaja" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                        <option value="Pequeña">Pequeña</option>
+                        <option value="Mediana" selected>Mediana</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="ntb-maxCajas">Número máximo de cajas *</label>
+                    <input type="number" id="ntb-maxCajas" min="1" step="1" value="15" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                </div>
+
+                <div class="form-group">
+                    <label for="ntb-opcionesBolas">Opciones de bolas por caja * <small>(separadas por coma)</small></label>
+                    <input type="text" id="ntb-opcionesBolas" placeholder="Ej: 8, 10, 11" value="8" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                </div>
+
+                <div class="flex gap-10" style="margin-top: 20px; justify-content: flex-end;">
+                    <button class="btn btn-secondary" onclick="cerrarModalNuevoTipoBola()">❌ Cancelar</button>
+                    <button class="btn btn-primary" onclick="guardarNuevoTipoBola()">💾 Crear tipo</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Añadir el modal al body
+    const divExistente = document.getElementById('modal-tipo-bola');
+    if (divExistente) divExistente.remove();
+
+    const div = document.createElement('div');
+    div.innerHTML = modalHTML;
+    document.body.appendChild(div.firstElementChild);
+}
+
+/**
+ * Cierra el modal de crear tipo de bola.
+ */
+function cerrarModalNuevoTipoBola() {
+    const modal = document.getElementById('modal-tipo-bola');
+    if (modal) modal.remove();
+}
+
+/**
+ * Guarda el tipo de bola nuevo en datos.tiposBola.
+ * Valida los datos, añade el tipo, lo selecciona en el <select> del formulario.
+ */
+function guardarNuevoTipoBola() {
+    const nombre = document.getElementById('ntb-nombre')?.value.trim() || '';
+    const peso = parseFloat(document.getElementById('ntb-peso')?.value) || 0;
+    const tipoCaja = document.getElementById('ntb-tipoCaja')?.value || 'Mediana';
+    const maxCajas = parseInt(document.getElementById('ntb-maxCajas')?.value) || 0;
+    const opcionesStr = document.getElementById('ntb-opcionesBolas')?.value || '';
+
+    // Validaciones
+    if (!nombre) {
+        mostrarNotificacion('❌ El nombre del tipo es obligatorio', 'error');
+        return;
+    }
+    if (peso <= 0) {
+        mostrarNotificacion('❌ El peso debe ser un número positivo', 'error');
+        return;
+    }
+    if (maxCajas < 1) {
+        mostrarNotificacion('❌ El número máximo de cajas debe ser mayor que 0', 'error');
+        return;
+    }
+
+    // Parsear opciones de bolas: "8, 10, 11" → [8, 10, 11]
+    const opciones = opcionesStr
+        .split(',')
+        .map(s => parseInt(s.trim()))
+        .filter(n => !isNaN(n) && n > 0);
+
+    if (opciones.length === 0) {
+        mostrarNotificacion('❌ Debe haber al menos una opción de bolas por caja', 'error');
+        return;
+    }
+
+    // Comprobar que no exista
+    const datos = cargarDatos();
+    if (!datos.tiposBola) datos.tiposBola = {};
+    if (datos.tiposBola[nombre]) {
+        mostrarNotificacion(`❌ Ya existe un tipo de bola llamado "${nombre}"`, 'error');
+        return;
+    }
+
+    // Crear el tipo
+    datos.tiposBola[nombre] = {
+        peso: peso,
+        configuraciones: [
+            { tipoCaja: tipoCaja, maxCajas: maxCajas, opcionesBolas: opciones }
+        ],
+        productosDestino: []
+    };
+
+    guardarDatos(datos);
+
+    // Cerrar modal
+    cerrarModalNuevoTipoBola();
+
+    // Actualizar el <select> del formulario de producto
+    const selectTipoBola = document.getElementById('producto-tipoBola');
+    if (selectTipoBola) {
+        const opt = document.createElement('option');
+        opt.value = nombre;
+        opt.textContent = nombre;
+        opt.selected = true;
+        selectTipoBola.appendChild(opt);
+        selectTipoBola.value = nombre;
+    }
+
+    mostrarNotificacion(`✅ Tipo "${nombre}" creado y seleccionado`, 'success');
+}
+
+// ============================================================
+// 4. RENDERIZADO DE LA VISTA PRODUCTOS
 // ============================================================
 
 function renderizarProductos() {
     const container = document.getElementById('vista-container');
     const datos = cargarDatos();
 
-    // Migración automática al cargar la lista
-    migrarProductosSinTipoBola(datos);
-
-    // Normalizar estructura
     datos.productos = datos.productos.map(asegurarEstructuraProducto);
 
     const tiposBola = obtenerTiposBolaDisponibles();
-    const productosConTipoBola = datos.productos.filter(p => p.tipoBola);
     const productosSinTipoBola = datos.productos.filter(p => !p.tipoBola);
 
-    // Opciones para el select de tipo de bola
     const opcionesTipoBola = tiposBola
         .map(t => `<option value="${escaparHTML(t)}">${escaparHTML(t)}</option>`)
         .join('');
@@ -141,10 +258,6 @@ function renderizarProductos() {
                 <div style="background: #FFF3E0; border-left: 4px solid var(--warning); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
                     <strong>⚠️ Productos sin tipo de bola asignado:</strong>
                     ${productosSinTipoBola.map(p => escaparHTML(p.nombre)).join(', ')}.
-                    <br>
-                    <span style="font-size: 0.85rem; color: #666;">
-                        Edita cada producto y asígnale un tipo de bola para que cuente en el amasado.
-                    </span>
                 </div>
             ` : ''}
 
@@ -157,10 +270,13 @@ function renderizarProductos() {
                     </div>
                     <div class="form-group">
                         <label for="producto-tipoBola">Tipo de bola *</label>
-                        <select id="producto-tipoBola" required>
-                            <option value="">— Seleccionar tipo —</option>
-                            ${opcionesTipoBola}
-                        </select>
+                        <div style="display: flex; gap: 6px;">
+                            <select id="producto-tipoBola" required style="flex: 1;">
+                                <option value="">— Seleccionar tipo —</option>
+                                ${opcionesTipoBola}
+                            </select>
+                            <button type="button" class="btn btn-success btn-sm" onclick="abrirModalNuevoTipoBola()" title="Crear tipo de bola nuevo" style="background: #28a745; white-space: nowrap;">➕ Nuevo tipo</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="producto-precioCosto">Precio Coste (€)</label>
@@ -211,7 +327,7 @@ function renderizarProductos() {
 
             const tipoBolaHTML = producto.tipoBola
                 ? `<span style="background: #E3F2FD; color: #1565C0; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600;">${escaparHTML(producto.tipoBola)}</span>`
-                : `<span style="background: #FFEBEE; color: #C62828; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600;" title="Sin tipo de bola asignado">⚠️ Sin asignar</span>`;
+                : `<span style="background: #FFEBEE; color: #C62828; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: 600;">⚠️ Sin asignar</span>`;
 
             html += `
                 <tr>
@@ -229,7 +345,7 @@ function renderizarProductos() {
                         </span>
                     </td>
                     <td>
-                        <button class="btn btn-info btn-sm" onclick="editarFichaTecnicaProducto(${producto.id})" title="Ficha técnica (ingredientes, alérgenos, nutricional)" style="background: #17a2b8; color: white;">📋</button>
+                        <button class="btn btn-info btn-sm" onclick="editarFichaTecnicaProducto(${producto.id})" title="Ficha técnica" style="background: #17a2b8; color: white;">📋</button>
                         <button class="btn btn-secondary btn-sm" onclick="editarProducto(${producto.id})" title="Editar">✏️</button>
                         ${producto.activo
                             ? `<button class="btn btn-danger btn-sm" onclick="eliminarProducto(${producto.id})" title="Desactivar">🗑️</button>`
@@ -250,8 +366,9 @@ function renderizarProductos() {
 
     container.innerHTML = html;
 }
+
 // ============================================================
-// 4. FORMULARIO DE PRODUCTOS
+// 5. FORMULARIO DE PRODUCTOS
 // ============================================================
 
 function mostrarFormularioProducto() {
@@ -271,7 +388,7 @@ function cerrarFormularioProducto() {
 }
 
 // ============================================================
-// 5. CRUD DE PRODUCTOS
+// 6. CRUD DE PRODUCTOS
 // ============================================================
 
 function guardarProducto() {
@@ -302,7 +419,6 @@ function guardarProducto() {
             );
             if (duplicado) {
                 mostrarNotificacion('❌ El nombre ya está en uso', 'error');
-                document.getElementById('producto-nombre').focus();
                 return;
             }
             producto.nombre = nombre;
@@ -316,7 +432,6 @@ function guardarProducto() {
         const duplicado = datos.productos.find(p => p.nombre.toLowerCase() === nombre.toLowerCase());
         if (duplicado) {
             mostrarNotificacion('❌ El nombre ya está en uso', 'error');
-            document.getElementById('producto-nombre').focus();
             return;
         }
         const nuevoProducto = Object.assign(crearProductoVacio(), {
@@ -358,9 +473,7 @@ function eliminarProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);
     if (!producto) return;
-
     if (!confirm(`⚠️ ¿Desactivar el producto "${producto.nombre}"?`)) return;
-
     producto.activo = false;
     guardarDatos(datos);
     renderizarProductos();
@@ -371,7 +484,6 @@ function reactivarProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);
     if (!producto) return;
-
     producto.activo = true;
     guardarDatos(datos);
     renderizarProductos();
@@ -379,7 +491,7 @@ function reactivarProducto(id) {
 }
 
 // ============================================================
-// 6. FICHA TÉCNICA DEL PRODUCTO
+// 7. FICHA TÉCNICA
 // ============================================================
 
 function editarFichaTecnicaProducto(id) {
@@ -397,10 +509,10 @@ function editarFichaTecnicaProducto(id) {
         ingredientesPT: 'Farinha de trigo (glúten), água, sal, fermento, azeite de oliva.',
         ingredientesFR: 'Farine de blé (gluten), eau, sel, levure, huile d\'olive.',
         ingredientesEN: 'Wheat flour (gluten), water, salt, yeast, olive oil.',
-        alergenosES: 'SOJA Y MOSTARDA (No presente en la formulación, pero no se puede descartar por contaminación cruzada).',
-        alergenosPT: 'SOJA E MOSTARDA (Presentes na formulação, mas não podem ser descartadas devido à contaminação cruzada).',
-        alergenosFR: 'SOJA ET MOUTARDE (Non présents dans la formulation, mais ne peuvent être exclus en raison d\'une contamination croisée).',
-        alergenosEN: 'SOY AND MUSTARD (Not present in the formulation, but cannot be ruled out due to cross-contamination).',
+        alergenosES: 'SOJA Y MOSTARDA.',
+        alergenosPT: 'SOJA E MOSTARDA.',
+        alergenosFR: 'SOJA ET MOUTARDE.',
+        alergenosEN: 'SOY AND MUSTARD.',
         nutricional: {
             energiaKJ: 1160, energiaKcal: 274, grasas: 4.3, grasasSaturadas: 1.2,
             hidratos: 50, azucares: 0.5, proteinas: 8.6, sal: 1.5
@@ -421,68 +533,65 @@ function editarFichaTecnicaProducto(id) {
         nutricional: producto.nutricional || { ...defecto.nutricional }
     };
 
-    const pesoNeto = prompt('📦 Peso neto (ej: 100 g):', ficha.pesoNeto);
+    const pesoNeto = prompt('📦 Peso neto:', ficha.pesoNeto);
     if (pesoNeto === null) return;
-    const formato = prompt('📐 Formato (ej: Single 100 g):', ficha.formato);
+    const formato = prompt('📐 Formato:', ficha.formato);
     if (formato === null) return;
-
-    const ingredientesES = prompt('🥣 Ingredientes (ES):', ficha.ingredientesES);
-    if (ingredientesES === null) return;
-    const ingredientesPT = prompt('🥣 Ingredientes (PT):', ficha.ingredientesPT);
-    if (ingredientesPT === null) return;
-    const ingredientesFR = prompt('🥣 Ingredientes (FR):', ficha.ingredientesFR);
-    if (ingredientesFR === null) return;
-    const ingredientesEN = prompt('🥣 Ingredientes (EN):', ficha.ingredientesEN);
-    if (ingredientesEN === null) return;
-
-    const alergenosES = prompt('⚠️ Alérgenos (ES):', ficha.alergenosES);
-    if (alergenosES === null) return;
-    const alergenosPT = prompt('⚠️ Alérgenos (PT):', ficha.alergenosPT);
-    if (alergenosPT === null) return;
-    const alergenosFR = prompt('⚠️ Alérgenos (FR):', ficha.alergenosFR);
-    if (alergenosFR === null) return;
-    const alergenosEN = prompt('⚠️ Alérgenos (EN):', ficha.alergenosEN);
-    if (alergenosEN === null) return;
-
-    const energiaKJ = prompt('🔥 Energía (KJ) por 100g:', ficha.nutricional.energiaKJ);
-    if (energiaKJ === null) return;
-    const energiaKcal = prompt('🔥 Energía (kcal) por 100g:', ficha.nutricional.energiaKcal);
-    if (energiaKcal === null) return;
-    const grasas = prompt('🧈 Grasas (g) por 100g:', ficha.nutricional.grasas);
-    if (grasas === null) return;
-    const grasasSaturadas = prompt('🧈 Grasas saturadas (g) por 100g:', ficha.nutricional.grasasSaturadas);
-    if (grasasSaturadas === null) return;
-    const hidratos = prompt('🍞 Hidratos de carbono (g) por 100g:', ficha.nutricional.hidratos);
-    if (hidratos === null) return;
-    const azucares = prompt('🍯 Azúcares (g) por 100g:', ficha.nutricional.azucares);
-    if (azucares === null) return;
-    const proteinas = prompt('💪 Proteínas (g) por 100g:', ficha.nutricional.proteinas);
-    if (proteinas === null) return;
-    const sal = prompt('🧂 Sal (g) por 100g:', ficha.nutricional.sal);
+    const ingES = prompt('🥣 Ingredientes (ES):', ficha.ingredientesES);
+    if (ingES === null) return;
+    const ingPT = prompt('🥣 Ingredientes (PT):', ficha.ingredientesPT);
+    if (ingPT === null) return;
+    const ingFR = prompt('🥣 Ingredientes (FR):', ficha.ingredientesFR);
+    if (ingFR === null) return;
+    const ingEN = prompt('🥣 Ingredientes (EN):', ficha.ingredientesEN);
+    if (ingEN === null) return;
+    const alES = prompt('⚠️ Alérgenos (ES):', ficha.alergenosES);
+    if (alES === null) return;
+    const alPT = prompt('⚠️ Alérgenos (PT):', ficha.alergenosPT);
+    if (alPT === null) return;
+    const alFR = prompt('⚠️ Alérgenos (FR):', ficha.alergenosFR);
+    if (alFR === null) return;
+    const alEN = prompt('⚠️ Alérgenos (EN):', ficha.alergenosEN);
+    if (alEN === null) return;
+    const kj = prompt('🔥 Energía (KJ):', ficha.nutricional.energiaKJ);
+    if (kj === null) return;
+    const kcal = prompt('🔥 Energía (kcal):', ficha.nutricional.energiaKcal);
+    if (kcal === null) return;
+    const gr = prompt('🧈 Grasas (g):', ficha.nutricional.grasas);
+    if (gr === null) return;
+    const grSat = prompt('🧈 Grasas saturadas (g):', ficha.nutricional.grasasSaturadas);
+    if (grSat === null) return;
+    const hid = prompt('🍞 Hidratos (g):', ficha.nutricional.hidratos);
+    if (hid === null) return;
+    const azu = prompt('🍯 Azúcares (g):', ficha.nutricional.azucares);
+    if (azu === null) return;
+    const prot = prompt('💪 Proteínas (g):', ficha.nutricional.proteinas);
+    if (prot === null) return;
+    const sal = prompt('🧂 Sal (g):', ficha.nutricional.sal);
     if (sal === null) return;
 
     producto.pesoNeto = pesoNeto.trim();
     producto.formato = formato.trim();
-    producto.ingredientesES = ingredientesES.trim();
-    producto.ingredientesPT = ingredientesPT.trim();
-    producto.ingredientesFR = ingredientesFR.trim();
-    producto.ingredientesEN = ingredientesEN.trim();
-    producto.alergenosES = alergenosES.trim();
-    producto.alergenosPT = alergenosPT.trim();
-    producto.alergenosFR = alergenosFR.trim();
-    producto.alergenosEN = alergenosEN.trim();
+    producto.ingredientesES = ingES.trim();
+    producto.ingredientesPT = ingPT.trim();
+    producto.ingredientesFR = ingFR.trim();
+    producto.ingredientesEN = ingEN.trim();
+    producto.alergenosES = alES.trim();
+    producto.alergenosPT = alPT.trim();
+    producto.alergenosFR = alFR.trim();
+    producto.alergenosEN = alEN.trim();
     producto.nutricional = {
-        energiaKJ: parseFloat(energiaKJ) || 0,
-        energiaKcal: parseFloat(energiaKcal) || 0,
-        grasas: parseFloat(grasas) || 0,
-        grasasSaturadas: parseFloat(grasasSaturadas) || 0,
-        hidratos: parseFloat(hidratos) || 0,
-        azucares: parseFloat(azucares) || 0,
-        proteinas: parseFloat(proteinas) || 0,
+        energiaKJ: parseFloat(kj) || 0,
+        energiaKcal: parseFloat(kcal) || 0,
+        grasas: parseFloat(gr) || 0,
+        grasasSaturadas: parseFloat(grSat) || 0,
+        hidratos: parseFloat(hid) || 0,
+        azucares: parseFloat(azu) || 0,
+        proteinas: parseFloat(prot) || 0,
         sal: parseFloat(sal) || 0
     };
 
     guardarDatos(datos);
-    mostrarNotificacion(`✅ Ficha técnica de "${producto.nombre}" actualizada`, 'success');
+    mostrarNotificacion(`✅ Ficha técnica actualizada`, 'success');
     renderizarProductos();
 }

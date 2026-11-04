@@ -71,7 +71,8 @@ const DATOS_POR_DEFECTO = {
         diasCaducidad: 19
     },
     produccion: {},
-    ordenesAmasado: {}
+    ordenesAmasado: {},
+    tiposBola: {}
 };
 
 // ============================================================
@@ -154,6 +155,7 @@ function asegurarEstructuraDatos(datos) {
     }
     if (!d.produccion || typeof d.produccion !== 'object') d.produccion = {};
     if (!d.ordenesAmasado || typeof d.ordenesAmasado !== 'object') d.ordenesAmasado = {};
+    if (!d.tiposBola || typeof d.tiposBola !== 'object') d.tiposBola = {};
     return d;
 }
 

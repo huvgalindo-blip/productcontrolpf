@@ -72,7 +72,76 @@ const DATOS_POR_DEFECTO = {
     },
     produccion: {},
     ordenesAmasado: {},
-    tiposBola: {}
+    tiposBola: {
+        "Pequeña": {
+            peso: 160,
+            configuraciones: [
+                { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8, 10, 11] },
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10, 11] }
+            ],
+            productosDestino: ["Pequeña", "M.Refinata", "Pequeña 25", "Allar 24x15"]
+        },
+        "Peq 190": {
+            peso: 190,
+            configuraciones: [
+                { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8, 10, 11] },
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10, 11] }
+            ],
+            productosDestino: ["Peq 190", "cuad. 28x28"]
+        },
+        "Mediana": {
+            peso: 260,
+            configuraciones: [
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8, 10] },
+                { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] }
+            ],
+            productosDestino: ["Mediana", "Med.28", "P.Americana", "G.Refinata", "Med.32", "Allar 30x18"]
+        },
+        "Grande": {
+            peso: 460,
+            configuraciones: [
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [6] }
+            ],
+            productosDestino: ["Grande", "Med. America"]
+        },
+        "Plancha": {
+            peso: 600,
+            configuraciones: [
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [3] }
+            ],
+            productosDestino: ["Plancha", "G.America", "Grand 50"]
+        },
+        "Single": {
+            peso: 110,
+            configuraciones: [
+                { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [15] }
+            ],
+            productosDestino: ["Single", "Piadina"]
+        },
+        "Grande 360": {
+            peso: 360,
+            configuraciones: [
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [6] }
+            ],
+            productosDestino: ["Med.35"]
+        },
+        "Pinsa Pequeña": {
+            peso: 160,
+            configuraciones: [
+                { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] },
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8] }
+            ],
+            productosDestino: ["Pinsa Pequeña"]
+        },
+        "Pinsa Mediana": {
+            peso: 260,
+            configuraciones: [
+                { tipoCaja: "Mediana", maxCajas: 15, opcionesBolas: [8] },
+                { tipoCaja: "Pequeña", maxCajas: 25, opcionesBolas: [8] }
+            ],
+            productosDestino: ["Pinsa Mediana"]
+        }
+    }
 };
 
 // ============================================================

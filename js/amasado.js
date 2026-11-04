@@ -218,7 +218,6 @@ function obtenerClimaGuardamar() {
         provincia: 'Alicante'
     };
 }
-
 // ============================================================
 // 6. RENDERIZADO
 // ============================================================
@@ -837,4 +836,3 @@ function exportarOrdenAmasado() {
         mostrarNotificacion('❌ Error al exportar CSV', 'error');
     }
 }
-// ⬇️ CONTINÚA EN EL BLOQUE 2 ⬇️

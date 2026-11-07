@@ -1,393 +1,838 @@
-// ============================================================
-// 0. GESTIÓN DE TIPOS DE BOLA (v4)
-// ============================================================
-// CRUD completo de tipos de bola desde la vista de amasado.
-// - Crear, editar, borrar tipos.
-// - Borrar bloqueado si algún producto lo usa.
-// - Cambiar nombre: actualiza los productos automáticamente.
-
 /**
- * Abre el modal de gestión de tipos de bola.
+ * ============================================================
+ * MÓDULO: AMASADO (v3)
+ * ============================================================
+ * Cambios v3:
+ *   - Los tipos de bola se leen desde datos.tiposBola (editables)
+ *   - El amasado solo gestiona BOLAS por tipo (sin distribución)
+ *   - Migración automática de tipos y de productos
+ *
+ * Dependencias: datos.js, utilidades.js, productos.js
+ * ============================================================
  */
-function abrirGestorTiposBola() {
+
+// ============================================================
+// 1. ACCESO A TIPOS DE BOLA
+// ============================================================
+
+function obtenerTiposBola() {
     const datos = cargarDatos();
     const tipos = datos.tiposBola || {};
+    return Object.keys(tipos);
+}
 
-    // Construir filas de la tabla
-    let filasHTML = '';
-    const nombresTipos = Object.keys(tipos).sort();
+function obtenerConfiguracionBola(tipo) {
+    const datos = cargarDatos();
+    const tipos = datos.tiposBola || {};
+    return tipos[tipo] || null;
+}
 
-    if (nombresTipos.length === 0) {
-        filasHTML = `
-            <tr>
-                <td colspan="5" class="text-center" style="padding: 20px; color: #999;">
-                    No hay tipos de bola definidos. Pulsa "➕ Crear nuevo" para empezar.
-                </td>
-            </tr>
-        `;
-    } else {
-        nombresTipos.forEach(nombre => {
-            const t = tipos[nombre];
-            const config = (t.configuraciones && t.configuraciones[0]) || {};
-            const productosQueLoUsan = (datos.productos || []).filter(p => p.tipoBola === nombre);
-            const numProductos = productosQueLoUsan.length;
-            const enUso = numProductos > 0;
+function generarIdOrdenAmasado(fecha, numero) {
+    return `ORD-${fecha.replace(/-/g, '')}-${String(numero).padStart(3, '0')}`;
+}
 
-            filasHTML += `
-                <tr>
-                    <td><strong>${escaparHTML(nombre)}</strong></td>
-                    <td>${t.peso || 0} g</td>
-                    <td>
-                        ${config.tipoCaja || '—'} · máx ${config.maxCajas || 0}<br>
-                        <small style="color: #999;">Bolas: ${(config.opcionesBolas || []).join(', ') || '—'}</small>
-                    </td>
-                    <td>
-                        ${enUso
-                            ? `<span style="color: var(--primary);">${numProductos} producto${numProductos > 1 ? 's' : ''}</span>`
-                            : `<span style="color: #999;">Ninguno</span>`}
-                    </td>
-                    <td>
-                        <button class="btn btn-secondary btn-sm" onclick="abrirEditarTipoBola('${escaparHTML(nombre).replace(/'/g, "\\'")}')" title="Editar">✏️</button>
-                        <button class="btn btn-danger btn-sm" onclick="intentarBorrarTipoBola('${escaparHTML(nombre).replace(/'/g, "\\'")}')" title="Eliminar" ${enUso ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>🗑️</button>
-                    </td>
-                </tr>
-            `;
+function calcularFechaUsoPorDefecto(fechaAmasado) {
+    return obtenerFechaSiguiente(fechaAmasado);
+}
+
+// ============================================================
+// 2. MIGRACIÓN DE TIPOS Y PRODUCTOS
+// ============================================================
+
+function construirMapaProductoATipoBola() {
+    const datos = cargarDatos();
+    const tipos = datos.tiposBola || {};
+    const mapa = {};
+    for (const tipoBola in tipos) {
+        const destino = tipos[tipoBola].productosDestino || [];
+        destino.forEach(prod => {
+            if (!mapa[prod]) mapa[prod] = tipoBola;
         });
     }
-
-    const modalHTML = `
-        <div id="modal-gestor-tipos-bola" style="
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); z-index: 9999;
-            display: flex; align-items: center; justify-content: center;
-            padding: 20px; box-sizing: border-box;
-        ">
-            <div style="
-                background: white; padding: 25px; border-radius: 10px;
-                max-width: 900px; width: 100%; max-height: 90vh;
-                overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            ">
-                <div class="flex-between" style="margin-bottom: 15px;">
-                    <h3 style="color: var(--secondary); margin: 0;">🔧 Gestionar tipos de bola</h3>
-                    <button class="btn btn-secondary btn-sm" onclick="cerrarGestorTiposBola()">✖ Cerrar</button>
-                </div>
-
-                <p style="font-size: 0.85rem; color: #666; margin-bottom: 15px;">
-                    Aquí defines las bolas que se amasan. Los productos eligen una de estas bolas.
-                    Si un tipo está en uso por algún producto, no se puede borrar hasta reasignarlo.
-                </p>
-
-                <div class="flex gap-10" style="margin-bottom: 15px;">
-                    <button class="btn btn-primary" onclick="abrirCrearTipoBola()">➕ Crear nuevo</button>
-                </div>
-
-                <div class="tabla-container" style="margin: 0;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Nombre</th>
-                                <th>Peso</th>
-                                <th>Configuración (caja · bolas)</th>
-                                <th>Uso en productos</th>
-                                <th>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${filasHTML}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    `;
-
-    // Eliminar modal previo si existe
-    const previo = document.getElementById('modal-gestor-tipos-bola');
-    if (previo) previo.remove();
-
-    // Crear y añadir
-    const div = document.createElement('div');
-    div.innerHTML = modalHTML;
-    document.body.appendChild(div.firstElementChild);
+    return mapa;
 }
 
-/**
- * Cierra el modal de gestión de tipos de bola.
- */
-function cerrarGestorTiposBola() {
-    const modal = document.getElementById('modal-gestor-tipos-bola');
-    if (modal) modal.remove();
+function migrarProductosConTipoBola(datos) {
+    const mapa = construirMapaProductoATipoBola();
+    const sinMapeo = [];
+    let migrados = 0;
+    let cambios = false;
+
+    datos.productos.forEach(p => {
+        if (p.tipoBola) return;
+        const tipo = mapa[p.nombre];
+        if (tipo) {
+            p.tipoBola = tipo;
+            migrados++;
+            cambios = true;
+        } else {
+            p.tipoBola = null;
+            sinMapeo.push(p.nombre);
+            cambios = true;
+        }
+    });
+
+    if (cambios) guardarDatos(datos);
+    if (sinMapeo.length > 0) {
+        console.warn('[amasado] Productos sin tipoBola asignado:', sinMapeo);
+    }
+    return { migrados, sinMapeo };
 }
 
-/**
- * Abre el modal para CREAR un tipo de bola nuevo.
- */
-function abrirCrearTipoBola() {
-    abrirFormularioTipoBola(null);
+function migrarAmasadosV2(datos) {
+    const ordenes = datos.ordenesAmasado || {};
+    let cambios = false;
+    for (const fecha in ordenes) {
+        const orden = ordenes[fecha];
+        if (orden.modelo === 'v2') continue;
+        (orden.lineas || []).forEach(l => {
+            delete l.distribucion;
+        });
+        orden.modelo = 'v2';
+        cambios = true;
+    }
+    if (cambios) guardarDatos(datos);
+    return cambios;
 }
 
-/**
- * Abre el modal para EDITAR un tipo de bola existente.
- */
-function abrirEditarTipoBola(nombre) {
+// ============================================================
+// 3. ACCESO A ÓRDENES
+// ============================================================
+
+function obtenerOrdenesAmasado(datos) {
+    if (!datos.ordenesAmasado) datos.ordenesAmasado = {};
+    return datos.ordenesAmasado;
+}
+
+function obtenerOrdenAmasado(datos, fecha) {
+    const ordenes = obtenerOrdenesAmasado(datos);
+    if (!ordenes[fecha]) {
+        ordenes[fecha] = {
+            id: generarIdOrdenAmasado(fecha, Object.keys(ordenes).length + 1),
+            fechaAmasado: fecha,
+            fechaUso: calcularFechaUsoPorDefecto(fecha),
+            lineas: [],
+            totalBolas: 0,
+            pesoTotal: 0,
+            aplicadoAProduccion: false,
+            temperatura: null,
+            humedad: null,
+            datosClima: null,
+            modelo: 'v2',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+    }
+    return ordenes[fecha];
+}
+
+function buscarOrdenAmasadoPorFechaUso(datos, fecha) {
+    const ordenes = datos.ordenesAmasado || {};
+    for (const k in ordenes) {
+        if (ordenes[k].fechaUso === fecha && ordenes[k].aplicadoAProduccion) {
+            return ordenes[k];
+        }
+    }
+    return null;
+}
+
+function persistirOrdenAmasado(datos, fecha, orden) {
+    orden.updatedAt = new Date().toISOString();
+    datos.ordenesAmasado[fecha] = orden;
+    return guardarDatos(datos);
+}
+
+// ============================================================
+// 4. VALIDACIÓN Y RESUMEN
+// ============================================================
+
+function validarOrdenAmasado(orden) {
+    const errores = [];
+    if (!orden) return { valida: false, errores: ['Orden no válida'] };
+    if (!Array.isArray(orden.lineas) || orden.lineas.length === 0) {
+        return { valida: false, errores: ['Debe haber al menos una línea'] };
+    }
+    orden.lineas.forEach((l, i) => {
+        const n = i + 1;
+        if (!l.tipoBola) errores.push(`Línea ${n}: falta tipo de bola`);
+        if (!l.peso || l.peso <= 0) errores.push(`Línea ${n}: peso inválido`);
+        if (!l.tipoCaja) errores.push(`Línea ${n}: falta tipo de caja`);
+        if (!l.cajas || l.cajas < 1) errores.push(`Línea ${n}: cajas debe ser > 0`);
+        if (!l.bolasPorCaja || l.bolasPorCaja < 1) errores.push(`Línea ${n}: bolas/caja debe ser > 0`);
+    });
+    return { valida: errores.length === 0, errores };
+}
+
+function obtenerResumenOrdenAmasado(orden) {
+    let totalBolas = 0, pesoTotal = 0, totalCajas = 0, totalTorres = 0;
+    if (orden?.lineas) {
+        orden.lineas.forEach(l => {
+            totalBolas += l.total || 0;
+            pesoTotal += ((l.total || 0) * l.peso / 1000);
+            totalCajas += l.cajas || 0;
+            totalTorres += 1;
+        });
+    }
+    return {
+        totalBolas,
+        pesoTotal: redondear2(pesoTotal),
+        totalCajas,
+        totalTorres
+    };
+}
+
+function obtenerStockBolasDeOrden(orden) {
+    const stock = {};
+    (orden?.lineas || []).forEach(l => {
+        const tipo = l.tipoBola;
+        if (!tipo) return;
+        stock[tipo] = (stock[tipo] || 0) + (l.total || 0);
+    });
+    return stock;
+}
+
+// ============================================================
+// 5. CLIMA
+// ============================================================
+
+function obtenerClimaGuardamar() {
+    const hora = new Date().getHours();
+    const mes = new Date().getMonth();
+    const tempPorMes = [12, 13, 15, 18, 21, 25, 28, 29, 26, 22, 17, 13];
+    let temp = tempPorMes[mes] || 20;
+    if (hora >= 6 && hora < 9) temp -= 2;
+    else if (hora >= 9 && hora < 12) temp += 1;
+    else if (hora >= 12 && hora < 15) temp += 3;
+    else if (hora >= 15 && hora < 18) temp += 2;
+    else if (hora >= 21 || hora < 6) temp -= 3;
+    let hum = 60 + Math.floor(Math.random() * 10);
+    if (mes >= 6 && mes <= 9) hum += 10;
+    if (hora >= 6 && hora < 9) hum += 5;
+    if (hora >= 12 && hora < 15) hum -= 5;
+    temp = Math.round(Math.max(5, Math.min(35, temp)) * 10) / 10;
+    hum = Math.round(Math.max(40, Math.min(85, hum)));
+    return {
+        temperatura: temp,
+        humedad: hum,
+        ciudad: 'Guardamar del Segura',
+        provincia: 'Alicante'
+    };
+}
+// ============================================================
+// 6. RENDERIZADO
+// ============================================================
+
+function renderizarOrdenAmasado(fechaParam) {
+    const container = document.getElementById('vista-container');
+    container.innerHTML = '<div class="loading">Cargando orden de amasado...</div>';
+
+    setTimeout(() => {
+        try {
+            const datos = cargarDatos();
+
+            migrarProductosConTipoBola(datos);
+            migrarAmasadosV2(datos);
+
+            const fecha = fechaParam
+                || document.getElementById('fecha-amasado')?.value
+                || obtenerFechaActual();
+
+            const orden = obtenerOrdenAmasado(datos, fecha);
+            const resumen = obtenerResumenOrdenAmasado(orden);
+            const validacion = validarOrdenAmasado(orden);
+            const clima = obtenerClimaGuardamar();
+            const fechaAuto = calcularFechaUsoPorDefecto(fecha);
+            const fechaUsoEsAuto = orden.fechaUso === fechaAuto;
+
+            let html = `
+                <div class="vista active">
+                    <div class="vista-header">
+                        <div>
+                            <h2>🔄 Orden de Amasado</h2>
+                            <span class="subtitle">Stock de bolas para el día de uso</span>
+                        </div>
+                        <div class="flex gap-10" style="align-items: center;">
+                            <button class="btn btn-primary btn-sm" onclick="cambiarVista('calculadoraMasa')" title="Abrir calculadora de masa">🧮 Calculadora</button>
+                            <span class="subtitle" style="font-weight: bold; color: ${orden.aplicadoAProduccion ? 'var(--success)' : 'var(--warning)'};">
+                                ${orden.aplicadoAProduccion ? '✅ Aplicado a producción' : '⏳ Pendiente de aplicar'}
+                            </span>
+                            ${orden.aplicadoAProduccion ? `<span style="font-size: 0.7rem; display: block; color: #666;">${new Date(orden.aplicadoEn).toLocaleString()}</span>` : ''}
+                        </div>
+                    </div>
+
+                    <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>📅 Fecha Amasado</label>
+                                <input type="date" id="fecha-amasado" value="${fecha}" onchange="renderizarOrdenAmasado(this.value)" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                            </div>
+                            <div class="form-group">
+                                <label>📅 Uso Previsto ${fechaUsoEsAuto ? '<span style="color: #999; font-weight: normal; font-size: 0.8rem;">(auto)</span>' : '<span style="color: var(--primary); font-weight: normal; font-size: 0.8rem;">(manual)</span>'}</label>
+                                <div style="display: flex; gap: 6px; align-items: center;">
+                                    <input type="date" id="fecha-uso" value="${orden.fechaUso}"
+                                           onchange="cambiarFechaUsoAmasado(this.value)"
+                                           style="flex: 1; font-weight: bold;" ${orden.aplicadoAProduccion ? 'disabled' : ''}>
+                                    ${!orden.aplicadoAProduccion ? `
+                                        <button class="btn btn-secondary btn-sm" onclick="restaurarFechaUsoPorDefecto()"
+                                                title="Volver al cálculo automático (día siguiente)"
+                                                style="padding: 6px 10px; font-size: 0.85rem; white-space: nowrap;">↺ Auto</button>
+                                    ` : ''}
+                                </div>
+                                <div style="font-size: 0.75rem; color: #999; margin-top: 4px;">
+                                    ${formatearFechaLarga(orden.fechaUso)}
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>🌡️ Temperatura (${clima.ciudad})</label>
+                                <input type="text" value="${orden.temperatura || clima.temperatura} °C" readonly style="background: #f0f0f0; font-weight: bold; color: var(--primary);">
+                            </div>
+                            <div class="form-group">
+                                <label>💧 Humedad (${clima.ciudad})</label>
+                                <input type="text" value="${orden.humedad || clima.humedad} %" readonly style="background: #f0f0f0; font-weight: bold; color: var(--primary);">
+                            </div>
+                        </div>
+                        <div style="font-size: 0.8rem; color: #999; margin-top: 5px; text-align: center;">
+                            🌡️ Clima automático de ${clima.ciudad} (${clima.provincia}) — ${new Date().toLocaleString()}
+                        </div>
+                    </div>
+
+                    <div class="tabla-container">
+                        <div class="flex-between mb-10">
+                            <h3>📦 Bolas a Amasar</h3>
+                            ${!orden.aplicadoAProduccion ? `
+                                <div>
+                                    <button class="btn btn-primary btn-sm" onclick="mostrarModalLineaAmasado()">➕ Añadir Línea</button>
+                                    <button class="btn btn-success btn-sm" onclick="duplicarTodasLineasAmasado()" style="background: #28a745; margin-left: 4px;">📋 Duplicar Todas</button>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tipo Bola</th>
+                                    <th>Peso</th>
+                                    <th>Caja</th>
+                                    <th>Nº Cajas</th>
+                                    <th>Bolas/Caja</th>
+                                    <th>Total</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+
+            if (!orden.lineas || orden.lineas.length === 0) {
+                html += `
+                    <tr>
+                        <td colspan="7" class="text-center" style="padding: 30px; color: #999;">
+                            No hay líneas de amasado. Haz clic en "➕ Añadir Línea" para comenzar.
+                        </td>
+                    </tr>
+                `;
+            } else {
+                orden.lineas.forEach((linea, index) => {
+                    const config = obtenerConfiguracionBola(linea.tipoBola);
+                    const total = linea.total || 0;
+                    const cfgCaja = config?.configuraciones.find(c => c.tipoCaja === linea.tipoCaja);
+
+                    html += `
+                        <tr>
+                            <td><strong>${escaparHTML(linea.tipoBola)}</strong></td>
+                            <td>${linea.peso}g</td>
+                            <td>${escaparHTML(linea.tipoCaja)}</td>
+                            <td>
+                                ${orden.aplicadoAProduccion ? linea.cajas : `
+                                    <input type="number" min="1" max="${cfgCaja?.maxCajas || 25}"
+                                           style="width: 60px;" value="${linea.cajas || 0}"
+                                           onchange="actualizarLineaAmasado(${index}, 'cajas', this.value)">
+                                `}
+                            </td>
+                            <td>
+                                ${orden.aplicadoAProduccion ? linea.bolasPorCaja : `
+                                    <select onchange="actualizarLineaAmasado(${index}, 'bolasPorCaja', this.value)">
+                                        ${(cfgCaja?.opcionesBolas || [8, 10]).map(op => `
+                                            <option value="${op}" ${op == linea.bolasPorCaja ? 'selected' : ''}>${op}</option>
+                                        `).join('')}
+                                    </select>
+                                `}
+                            </td>
+                            <td><strong>${total}</strong></td>
+                            <td>
+                                ${!orden.aplicadoAProduccion ? `
+                                    <button class="btn btn-success btn-sm" onclick="duplicarLineaAmasado(${index})" title="Duplicar" style="background: #28a745; margin-right: 4px;">📋</button>
+                                    <button class="btn btn-danger btn-sm" onclick="eliminarLineaAmasado(${index})" title="Eliminar">🗑️</button>
+                                ` : ''}
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="resumen-grid" style="margin-top: 20px;">
+                        <div class="resumen-card">
+                            <div class="label">Total Bolas</div>
+                            <div class="value primary">${resumen.totalBolas}</div>
+                        </div>
+                        <div class="resumen-card">
+                            <div class="label">Peso Total</div>
+                            <div class="value">${resumen.pesoTotal} kg</div>
+                        </div>
+                        <div class="resumen-card">
+                            <div class="label">Total Cajas</div>
+                            <div class="value">${resumen.totalCajas}</div>
+                        </div>
+                        <div class="resumen-card">
+                            <div class="label">Torres</div>
+                            <div class="value">${resumen.totalTorres}</div>
+                        </div>
+                    </div>
+
+                    ${!orden.aplicadoAProduccion ? `
+                        <div style="margin-top: 20px; padding: 15px; background: ${validacion.valida ? '#E8F5E9' : '#FFF3E0'}; border-radius: 8px; border-left: 4px solid ${validacion.valida ? 'var(--success)' : 'var(--error)'};">
+                            ${validacion.valida
+                                ? '✅ La orden está completa y lista para aplicar a producción'
+                                : '❌ ' + validacion.errores.map(escaparHTML).join('. ')
+                            }
+                        </div>
+                    ` : ''}
+
+                    <div class="flex gap-10" style="margin-top: 20px; flex-wrap: wrap;">
+                        ${!orden.aplicadoAProduccion ? `
+                            <button class="btn btn-primary" onclick="guardarOrdenAmasado()">💾 Guardar Orden</button>
+                            <button class="btn btn-success" onclick="aplicarOrdenAProduccionUI()">📥 Aplicar a Producción</button>
+                            <button class="btn btn-danger" onclick="eliminarOrdenAmasado()">🗑️ Eliminar Orden</button>
+                            <button class="btn btn-info" onclick="verProduccionDesdeAmasado()" style="background: #17a2b8; color: white;">📋 Ver en Producción</button>
+                        ` : `
+                            <button class="btn btn-secondary" onclick="renderizarOrdenAmasado()">🔄 Recargar</button>
+                            <button class="btn btn-warning" onclick="desaplicarOrdenAmasado()">↩️ Deshacer Aplicación</button>
+                        `}
+                        <button class="btn btn-secondary" onclick="exportarOrdenAmasado()">📥 Exportar CSV</button>
+                    </div>
+
+                    ${orden.aplicadoAProduccion ? `
+                        <div style="margin-top: 15px; padding: 15px; background: #E8F5E9; border-radius: 8px; border-left: 4px solid var(--success);">
+                            <p style="font-size: 0.9rem; color: #2E7D32;">
+                                ✅ Esta orden fue aplicada a producción el ${new Date(orden.aplicadoEn).toLocaleString()}
+                            </p>
+                        </div>
+                    ` : `
+                        <div style="margin-top: 15px; padding: 15px; background: #FFF8E1; border-radius: 8px; border-left: 4px solid var(--warning);">
+                            <p style="font-size: 0.9rem; color: #666;">
+                                ℹ️ <strong>Nota:</strong> La orden se aplicará como stock de bolas al día <strong>${formatearFechaLarga(orden.fechaUso)}</strong>.
+                                La asignación de bolas a productos se hace desde Producción.
+                            </p>
+                        </div>
+                    `}
+                </div>
+            `;
+
+            container.innerHTML = html;
+            guardarDatos(datos);
+        } catch (error) {
+            console.error('❌ Error al renderizar orden de amasado:', error);
+            container.innerHTML = `
+                <div class="vista active">
+                    <div class="vista-error">
+                        <h3>❌ Error al cargar la orden de amasado</h3>
+                        <p>${escaparHTML(error.message)}</p>
+                        <button class="btn btn-primary" onclick="renderizarOrdenAmasado()">🔄 Reintentar</button>
+                    </div>
+                </div>
+            `;
+        }
+    }, 50);
+}
+
+// ============================================================
+// 7. FECHA DE USO
+// ============================================================
+
+function cambiarFechaUsoAmasado(nuevaFecha) {
+    if (!nuevaFecha) return;
     const datos = cargarDatos();
-    if (!datos.tiposBola || !datos.tiposBola[nombre]) {
-        mostrarNotificacion('❌ Tipo de bola no encontrado', 'error');
+    const fechaAmasado = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fechaAmasado);
+    if (orden.aplicadoAProduccion) {
+        mostrarNotificacion('⚠️ No se puede cambiar: la orden ya está aplicada', 'warning');
         return;
     }
-    abrirFormularioTipoBola(nombre);
+    orden.fechaUso = nuevaFecha;
+    persistirOrdenAmasado(datos, fechaAmasado, orden);
+    renderizarOrdenAmasado(fechaAmasado);
+    mostrarNotificacion(`✅ Fecha de uso actualizada al ${formatearFechaLarga(nuevaFecha)}`, 'success');
 }
 
-/**
- * Abre el formulario de crear/editar tipo de bola.
- * Si `nombreExistente` es null → crear. Si no → editar.
- */
-function abrirFormularioTipoBola(nombreExistente) {
+function restaurarFechaUsoPorDefecto() {
     const datos = cargarDatos();
-    const esEdicion = !!nombreExistente;
-    let nombre = '';
-    let peso = 200;
-    let tipoCaja = 'Mediana';
-    let maxCajas = 15;
-    let opcionesStr = '6, 8';
-
-    if (esEdicion) {
-        const t = datos.tiposBola[nombreExistente];
-        if (!t) return;
-        const config = (t.configuraciones && t.configuraciones[0]) || {};
-        nombre = nombreExistente;
-        peso = t.peso || 200;
-        tipoCaja = config.tipoCaja || 'Mediana';
-        maxCajas = config.maxCajas || 15;
-        opcionesStr = (config.opcionesBolas || [6, 8]).join(', ');
+    const fechaAmasado = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fechaAmasado);
+    if (orden.aplicadoAProduccion) {
+        mostrarNotificacion('⚠️ No se puede cambiar: la orden ya está aplicada', 'warning');
+        return;
     }
-
-    const titulo = esEdicion ? '✏️ Editar tipo de bola' : '➕ Crear nuevo tipo de bola';
-    const productosQueLoUsan = esEdicion
-        ? (datos.productos || []).filter(p => p.tipoBola === nombreExistente)
-        : [];
-    const enUso = productosQueLoUsan.length > 0;
-
-    const avisoNombre = (esEdicion && enUso)
-        ? `<div style="background: #FFF3E0; border-left: 4px solid var(--warning); padding: 10px; border-radius: 4px; margin-bottom: 15px; font-size: 0.85rem;">
-             ⚠️ <strong>Este tipo lo usan ${productosQueLoUsan.length} productos.</strong>
-             Si cambias el nombre, se actualizarán automáticamente.
-           </div>`
-        : '';
-
-    const modalHTML = `
-        <div id="modal-form-tipo-bola" style="
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); z-index: 10000;
-            display: flex; align-items: center; justify-content: center;
-            padding: 20px; box-sizing: border-box;
-        ">
-            <div style="
-                background: white; padding: 25px; border-radius: 10px;
-                max-width: 500px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            ">
-                <h3 style="margin-bottom: 15px; color: var(--secondary);">${titulo}</h3>
-
-                ${avisoNombre}
-
-                <div class="form-group">
-                    <label for="tb-nombre">Nombre del tipo *</label>
-                    <input type="text" id="tb-nombre" value="${escaparHTML(nombre)}" placeholder="Ej: Grande 360" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="form-group">
-                    <label for="tb-peso">Peso por bola (g) *</label>
-                    <input type="number" id="tb-peso" min="1" step="1" value="${peso}" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="form-group">
-                    <label for="tb-tipoCaja">Tipo de caja *</label>
-                    <select id="tb-tipoCaja" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                        <option value="Pequeña" ${tipoCaja === 'Pequeña' ? 'selected' : ''}>Pequeña</option>
-                        <option value="Mediana" ${tipoCaja === 'Mediana' ? 'selected' : ''}>Mediana</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="tb-maxCajas">Número máximo de cajas *</label>
-                    <input type="number" id="tb-maxCajas" min="1" step="1" value="${maxCajas}" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="form-group">
-                    <label for="tb-opcionesBolas">Opciones de bolas por caja * <small>(separadas por coma)</small></label>
-                    <input type="text" id="tb-opcionesBolas" value="${escaparHTML(opcionesStr)}" placeholder="Ej: 8, 10, 11" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="flex gap-10" style="margin-top: 20px; justify-content: flex-end;">
-                    <button class="btn btn-secondary" onclick="cerrarFormularioTipoBola()">❌ Cancelar</button>
-                    <button class="btn btn-primary" onclick="guardarTipoBola(${esEdicion ? `'${escaparHTML(nombreExistente).replace(/'/g, "\\'")}'` : 'null'})">💾 ${esEdicion ? 'Guardar cambios' : 'Crear tipo'}</button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    const previo = document.getElementById('modal-form-tipo-bola');
-    if (previo) previo.remove();
-
-    const div = document.createElement('div');
-    div.innerHTML = modalHTML;
-    document.body.appendChild(div.firstElementChild);
+    const fechaAuto = calcularFechaUsoPorDefecto(fechaAmasado);
+    orden.fechaUso = fechaAuto;
+    persistirOrdenAmasado(datos, fechaAmasado, orden);
+    renderizarOrdenAmasado(fechaAmasado);
+    mostrarNotificacion(`↺ Fecha de uso restaurada al ${formatearFechaLarga(fechaAuto)}`, 'info');
 }
 
-/**
- * Cierra el formulario de tipo de bola.
- */
-function cerrarFormularioTipoBola() {
-    const modal = document.getElementById('modal-form-tipo-bola');
-    if (modal) modal.remove();
-}
+// ============================================================
+// 8. CRUD DE LÍNEAS
+// ============================================================
 
-/**
- * Guarda un tipo de bola (nuevo o edición).
- * @param {string|null} nombreOriginal - Nombre original si es edición, null si es nuevo.
- */
-function guardarTipoBola(nombreOriginal) {
-    const nombre = (document.getElementById('tb-nombre')?.value || '').trim();
-    const peso = parseFloat(document.getElementById('tb-peso')?.value) || 0;
-    const tipoCaja = document.getElementById('tb-tipoCaja')?.value || 'Mediana';
-    const maxCajas = parseInt(document.getElementById('tb-maxCajas')?.value) || 0;
-    const opcionesStr = document.getElementById('tb-opcionesBolas')?.value || '';
+function mostrarModalLineaAmasado() {
+    const tipos = obtenerTiposBola();
 
-    if (!nombre) {
-        mostrarNotificacion('❌ El nombre es obligatorio', 'error');
-        return;
-    }
-    if (peso <= 0) {
-        mostrarNotificacion('❌ El peso debe ser mayor que 0', 'error');
-        return;
-    }
-    if (maxCajas < 1) {
-        mostrarNotificacion('❌ El número de cajas debe ser mayor que 0', 'error');
+    if (tipos.length === 0) {
+        mostrarNotificacion('⚠️ No hay tipos de bola definidos. Crea uno en Productos primero.', 'warning');
         return;
     }
 
-    const opciones = opcionesStr
-        .split(',')
-        .map(s => parseInt(s.trim()))
-        .filter(n => !isNaN(n) && n > 0);
+    let msg = 'Selecciona el tipo de bola:\n';
+    tipos.forEach((t, i) => { msg += `${i+1}. ${t}\n`; });
+    msg += '\n0. Cancelar';
 
-    if (opciones.length === 0) {
-        mostrarNotificacion('❌ Debe haber al menos una opción de bolas', 'error');
+    const sel = prompt(msg);
+    if (!sel || sel === '0') return;
+    const idx = parseInt(sel) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= tipos.length) {
+        mostrarNotificacion('❌ Selección inválida', 'error');
+        return;
+    }
+
+    const tipo = tipos[idx];
+    const config = obtenerConfiguracionBola(tipo);
+    if (!config || !Array.isArray(config.configuraciones) || config.configuraciones.length === 0) {
+        mostrarNotificacion('❌ Este tipo de bola no tiene configuraciones válidas', 'error');
+        return;
+    }
+
+    let msgCaja = 'Selecciona tipo de caja:\n';
+    config.configuraciones.forEach((c, i) => {
+        msgCaja += `${i+1}. ${c.tipoCaja} (max ${c.maxCajas}) — bolas: ${c.opcionesBolas.join(', ')}\n`;
+    });
+    msgCaja += '\n0. Cancelar';
+
+    const selCaja = prompt(msgCaja);
+    if (!selCaja || selCaja === '0') return;
+    const cIdx = parseInt(selCaja) - 1;
+    if (isNaN(cIdx) || cIdx < 0 || cIdx >= config.configuraciones.length) {
+        mostrarNotificacion('❌ Selección inválida', 'error');
+        return;
+    }
+    const cfgCaja = config.configuraciones[cIdx];
+
+    const cajasStr = prompt(`Número de cajas (máx ${cfgCaja.maxCajas}):`, '1');
+    if (!cajasStr) return;
+    const cajas = parseInt(cajasStr);
+    if (isNaN(cajas) || cajas < 1 || cajas > cfgCaja.maxCajas) {
+        mostrarNotificacion(`❌ Máx ${cfgCaja.maxCajas} cajas`, 'error');
+        return;
+    }
+
+    const bolasStr = prompt(`Bolas por caja (${cfgCaja.opcionesBolas.join(', ')}):`, cfgCaja.opcionesBolas[0].toString());
+    if (!bolasStr) return;
+    const bolas = parseInt(bolasStr);
+    if (isNaN(bolas) || !cfgCaja.opcionesBolas.includes(bolas)) {
+        mostrarNotificacion(`❌ Opciones: ${cfgCaja.opcionesBolas.join(', ')}`, 'error');
         return;
     }
 
     const datos = cargarDatos();
-    if (!datos.tiposBola) datos.tiposBola = {};
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
 
-    const esEdicion = !!nombreOriginal;
-    const nombreCambiado = esEdicion && nombre !== nombreOriginal;
+    const nuevaLinea = {
+        tipoBola: tipo,
+        peso: config.peso,
+        tipoCaja: cfgCaja.tipoCaja,
+        cajas,
+        bolasPorCaja: bolas,
+        total: cajas * bolas
+    };
+    orden.lineas.push(nuevaLinea);
 
-    // Si es nuevo o cambia el nombre, comprobar que no exista
-    if (!esEdicion || nombreCambiado) {
-        if (datos.tiposBola[nombre]) {
-            mostrarNotificacion(`❌ Ya existe un tipo llamado "${nombre}"`, 'error');
+    guardarDatos(datos);
+    renderizarOrdenAmasado(fecha);
+    mostrarNotificacion('✅ Línea añadida', 'success');
+}
+
+const actualizarLineaAmasadoDebounce = debounce(function(index, campo, valor) {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    if (index >= orden.lineas.length) return;
+
+    const l = orden.lineas[index];
+    const v = parseInt(valor) || 0;
+
+    if (campo === 'cajas') {
+        const cfg = obtenerConfiguracionBola(l.tipoBola);
+        const cc = cfg?.configuraciones.find(c => c.tipoCaja === l.tipoCaja);
+        if (cc && v > cc.maxCajas) {
+            mostrarNotificacion(`⚠️ Máx ${cc.maxCajas}`, 'warning');
             return;
         }
-    }
-
-    const configuracion = [{
-        tipoCaja: tipoCaja,
-        maxCajas: maxCajas,
-        opcionesBolas: opciones
-    }];
-
-    if (esEdicion) {
-        // Mantener productosDestino existente
-        const anterior = datos.tiposBola[nombreOriginal] || {};
-        datos.tiposBola[nombre] = {
-            peso: peso,
-            configuraciones: configuracion,
-            productosDestino: anterior.productosDestino || []
-        };
-        // Si cambió el nombre → borrar el antiguo
-        if (nombreCambiado) {
-            delete datos.tiposBola[nombreOriginal];
-            // Actualizar los productos que usaban el nombre antiguo
-            let actualizados = 0;
-            (datos.productos || []).forEach(p => {
-                if (p.tipoBola === nombreOriginal) {
-                    p.tipoBola = nombre;
-                    actualizados++;
-                }
-            });
-            if (actualizados > 0) {
-                console.log(`[tipos-bola] ${actualizados} productos actualizados al nuevo nombre "${nombre}"`);
-            }
+        l.cajas = v;
+    } else if (campo === 'bolasPorCaja') {
+        const cfg = obtenerConfiguracionBola(l.tipoBola);
+        const cc = cfg?.configuraciones.find(c => c.tipoCaja === l.tipoCaja);
+        if (cc && !cc.opcionesBolas.includes(v)) {
+            mostrarNotificacion(`⚠️ Opciones: ${cc.opcionesBolas.join(', ')}`, 'warning');
+            return;
         }
-    } else {
-        datos.tiposBola[nombre] = {
-            peso: peso,
-            configuraciones: configuracion,
-            productosDestino: []
-        };
+        l.bolasPorCaja = v;
     }
-
+    l.total = (l.cajas || 0) * (l.bolasPorCaja || 0);
     guardarDatos(datos);
+    renderizarOrdenAmasado(fecha);
+}, 300);
 
-    cerrarFormularioTipoBola();
-
-    // Refrescar el gestor si sigue abierto
-    if (document.getElementById('modal-gestor-tipos-bola')) {
-        // Reabrir el gestor para reflejar los cambios
-        cerrarGestorTiposBola();
-        abrirGestorTiposBola();
-    } else {
-        // Si estamos en el formulario de producto, actualizar el <select>
-        const selectTipoBola = document.getElementById('producto-tipoBola');
-        if (selectTipoBola) {
-            renderizarProductos(); // Recargar la vista de productos completa
-        }
-    }
-
-    // Si estamos en la vista de amasado, recargar
-    if (document.getElementById('fecha-amasado')) {
-        renderizarOrdenAmasado();
-    }
-
-    mostrarNotificacion(
-        esEdicion
-            ? (nombreCambiado ? `✅ Tipo renombrado a "${nombre}" y productos actualizados` : `✅ Tipo "${nombre}" actualizado`)
-            : `✅ Tipo "${nombre}" creado`,
-        'success'
-    );
+function actualizarLineaAmasado(i, c, v) {
+    actualizarLineaAmasadoDebounce(i, c, v);
 }
 
-/**
- * Intenta borrar un tipo de bola. Si está en uso, bloquea y avisa.
- */
-function intentarBorrarTipoBola(nombre) {
+function eliminarLineaAmasado(index) {
+    if (!confirm('⚠️ ¿Eliminar esta línea?')) return;
     const datos = cargarDatos();
-    if (!datos.tiposBola || !datos.tiposBola[nombre]) {
-        mostrarNotificacion('❌ Tipo no encontrado', 'error');
-        return;
-    }
-
-    const productosQueLoUsan = (datos.productos || []).filter(p => p.tipoBola === nombre);
-
-    if (productosQueLoUsan.length > 0) {
-        const nombresProd = productosQueLoUsan.map(p => p.nombre).join(', ');
-        mostrarNotificacion(
-            `❌ No se puede borrar "${nombre}": lo usan ${productosQueLoUsan.length} productos (${nombresProd}). Reasígnalos primero.`,
-            'error'
-        );
-        return;
-    }
-
-    if (!confirm(`⚠️ ¿Eliminar el tipo de bola "${nombre}"?\n\nEsta acción no se puede deshacer.`)) {
-        return;
-    }
-
-    delete datos.tiposBola[nombre];
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    if (index >= orden.lineas.length) return;
+    orden.lineas.splice(index, 1);
     guardarDatos(datos);
+    renderizarOrdenAmasado(fecha);
+    mostrarNotificacion('✅ Línea eliminada', 'success');
+}
 
-    // Refrescar el gestor
-    cerrarGestorTiposBola();
-    abrirGestorTiposBola();
+function duplicarLineaAmasado(index) {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    if (index >= orden.lineas.length) return;
+    const copia = clonarProfundo(orden.lineas[index]);
+    delete copia.distribucion;
+    orden.lineas.splice(index + 1, 0, copia);
+    guardarDatos(datos);
+    renderizarOrdenAmasado(fecha);
+    mostrarNotificacion('✅ Línea duplicada', 'success');
+}
 
-    mostrarNotificacion(`✅ Tipo "${nombre}" eliminado`, 'success');
+function duplicarTodasLineasAmasado() {
+    if (!confirm('⚠️ ¿Duplicar todas las líneas?')) return;
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    if (!orden.lineas || orden.lineas.length === 0) {
+        mostrarNotificacion('⚠️ No hay líneas', 'warning');
+        return;
+    }
+    const originales = clonarProfundo(orden.lineas);
+    originales.forEach(l => {
+        delete l.distribucion;
+        orden.lineas.push(l);
+    });
+    guardarDatos(datos);
+    renderizarOrdenAmasado(fecha);
+    mostrarNotificacion('✅ Líneas duplicadas', 'success');
+}
+
+// ============================================================
+// 9. GUARDAR / APLICAR / DESAPLICAR / ELIMINAR
+// ============================================================
+
+function guardarOrdenAmasado() {
+    try {
+        const datos = cargarDatos();
+        const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+        const orden = obtenerOrdenAmasado(datos, fecha);
+
+        const clima = obtenerClimaGuardamar();
+        orden.temperatura = clima.temperatura;
+        orden.humedad = clima.humedad;
+        orden.datosClima = {
+            ciudad: clima.ciudad,
+            provincia: clima.provincia,
+            fecha: new Date().toISOString()
+        };
+
+        const validacion = validarOrdenAmasado(orden);
+        if (!validacion.valida) {
+            mostrarNotificacion('❌ ' + validacion.errores.join('. '), 'error');
+            return;
+        }
+
+        const resumen = obtenerResumenOrdenAmasado(orden);
+        orden.totalBolas = resumen.totalBolas;
+        orden.pesoTotal = resumen.pesoTotal;
+
+        persistirOrdenAmasado(datos, fecha, orden);
+        mostrarNotificacion(`✅ Orden guardada (${clima.temperatura}°C, ${clima.humedad}%)`, 'success');
+        renderizarOrdenAmasado(fecha);
+    } catch (error) {
+        console.error('Error al guardar orden:', error);
+        mostrarNotificacion('❌ Error: ' + error.message, 'error');
+    }
+}
+
+function aplicarOrdenAProduccionUI() {
+    try {
+        const datos = cargarDatos();
+        const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+        const orden = obtenerOrdenAmasado(datos, fecha);
+
+        const validacion = validarOrdenAmasado(orden);
+        if (!validacion.valida) {
+            mostrarNotificacion('❌ ' + validacion.errores.join('. '), 'error');
+            return;
+        }
+        if (orden.aplicadoAProduccion) {
+            mostrarNotificacion('⚠️ Ya fue aplicada', 'warning');
+            return;
+        }
+
+        if (!confirm(`📥 ¿Aplicar esta orden al inventario del ${formatearFechaLarga(orden.fechaUso)}?`)) return;
+
+        const fechaUso = orden.fechaUso;
+        if (!datos.produccion[fechaUso]) {
+            datos.produccion[fechaUso] = { inventarioInicial: {}, horasTrabajadas: 0, pedidos: [] };
+        }
+
+        const stockBolas = {};
+        orden.lineas.forEach(l => {
+            const tipo = l.tipoBola;
+            if (!tipo) return;
+            stockBolas[tipo] = (stockBolas[tipo] || 0) + (l.total || 0);
+        });
+        datos.produccion[fechaUso].inventarioBolas = stockBolas;
+
+        const inv = {};
+        orden.lineas.forEach(l => {
+            const tipo = l.tipoBola;
+            if (!tipo) return;
+            const totalBolas = l.total || 0;
+            const productosDeEsteTipo = datos.productos.filter(p =>
+                p.tipoBola === tipo && p.activo !== false
+            );
+            if (productosDeEsteTipo.length === 0) return;
+            const porProducto = Math.floor(totalBolas / productosDeEsteTipo.length);
+            const resto = totalBolas - porProducto * productosDeEsteTipo.length;
+            productosDeEsteTipo.forEach((p, i) => {
+                const cant = porProducto + (i < resto ? 1 : 0);
+                if (cant > 0) inv[p.nombre] = (inv[p.nombre] || 0) + cant;
+            });
+        });
+        datos.produccion[fechaUso].inventarioInicial = inv;
+        datos.produccion[fechaUso].inventarioDesdeAmasado = true;
+
+        orden.aplicadoAProduccion = true;
+        orden.aplicadoEn = new Date().toISOString();
+
+        guardarDatos(datos);
+        mostrarNotificacion(`✅ Orden aplicada al ${formatearFechaLarga(fechaUso)}`, 'success');
+        renderizarOrdenAmasado(fecha);
+    } catch (error) {
+        console.error('Error al aplicar:', error);
+        mostrarNotificacion('❌ Error: ' + error.message, 'error');
+    }
+}
+
+function desaplicarOrdenAmasado() {
+    if (!confirm('⚠️ ¿Deshacer la aplicación a producción?')) return;
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    if (!orden.aplicadoAProduccion) {
+        mostrarNotificacion('⚠️ No está aplicada', 'warning');
+        return;
+    }
+    const fechaUso = orden.fechaUso;
+    if (datos.produccion?.[fechaUso]) {
+        datos.produccion[fechaUso].inventarioInicial = {};
+        datos.produccion[fechaUso].inventarioBolas = {};
+        delete datos.produccion[fechaUso].inventarioDesdeAmasado;
+    }
+    orden.aplicadoAProduccion = false;
+    delete orden.aplicadoEn;
+    guardarDatos(datos);
+    mostrarNotificacion('✅ Aplicación deshecha', 'success');
+    renderizarOrdenAmasado(fecha);
+}
+
+function eliminarOrdenAmasado() {
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const datos = cargarDatos();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+
+    let msg = '⚠️ ¿Eliminar esta orden de amasado?';
+    if (orden.aplicadoAProduccion) {
+        msg = '⚠️ La orden YA está aplicada a producción. ¿Eliminar de todas formas?';
+    }
+    if (!confirm(msg)) return;
+
+    delete datos.ordenesAmasado[fecha];
+    guardarDatos(datos);
+    mostrarNotificacion('✅ Orden eliminada', 'success');
+    renderizarOrdenAmasado(fecha);
+}
+
+function verProduccionDesdeAmasado() {
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const datos = cargarDatos();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+    if (!orden) return;
+    cambiarVista('produccion');
+    setTimeout(() => {
+        const input = document.getElementById('fecha-produccion');
+        if (input) {
+            input.value = orden.fechaUso;
+            renderizarProduccion();
+        }
+    }, 100);
+}
+
+// ============================================================
+// 10. EXPORTAR CSV
+// ============================================================
+
+function exportarOrdenAmasado() {
+    const datos = cargarDatos();
+    const fecha = document.getElementById('fecha-amasado')?.value || obtenerFechaActual();
+    const orden = obtenerOrdenAmasado(datos, fecha);
+
+    if (!orden.lineas || orden.lineas.length === 0) {
+        mostrarNotificacion('⚠️ No hay datos para exportar', 'warning');
+        return;
+    }
+
+    let csv = 'Orden de Amasado - Quality Pizzafresh\n';
+    csv += `Fecha Amasado: ${fecha}\n`;
+    csv += `Fecha Uso: ${orden.fechaUso}\n`;
+    csv += `Total Bolas: ${orden.totalBolas || 0}\n`;
+    csv += `Peso Total: ${orden.pesoTotal || 0} kg\n\n`;
+    csv += 'Tipo Bola,Peso,Caja,Cajas,Bolas/Caja,Total Bolas\n';
+
+    orden.lineas.forEach(linea => {
+        csv += `${linea.tipoBola},${linea.peso},${linea.tipoCaja},${linea.cajas},${linea.bolasPorCaja},${linea.total}\n`;
+    });
+
+    try {
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `orden_amasado_${fecha}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        mostrarNotificacion('📥 CSV exportado', 'success');
+    } catch (error) {
+        console.error('Error al exportar:', error);
+        mostrarNotificacion('❌ Error al exportar CSV', 'error');
+    }
 }

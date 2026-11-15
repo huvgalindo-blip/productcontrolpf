@@ -45,35 +45,20 @@ function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
 }
 
 function inicializarInventario(datos, fecha) {
-    const productos = obtenerProductosActivos(datos);
     const produccion = obtenerProduccionDia(datos, fecha);
 
+    // Si ya hay datos, no hacemos nada
     if (produccion.inventarioInicial && Object.keys(produccion.inventarioInicial).length > 0) {
         return produccion.inventarioInicial;
     }
 
-    const ordenAmasado = buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha);
-    if (ordenAmasado && typeof obtenerStockBolasDeOrden === 'function') {
-        // v2: repartir bolas entre productos del mismo tipo
-        const stockPorTipo = obtenerStockBolasDeOrden(ordenAmasado);
-        const inv = {};
-        Object.keys(stockPorTipo).forEach(tipo => {
-            const totalBolas = stockPorTipo[tipo] || 0;
-            if (totalBolas <= 0) return;
-            const productosDeEsteTipo = productos.filter(p => p.tipoBola === tipo);
-            if (productosDeEsteTipo.length === 0) return;
-            const porProducto = Math.floor(totalBolas / productosDeEsteTipo.length);
-            const resto = totalBolas - porProducto * productosDeEsteTipo.length;
-            productosDeEsteTipo.forEach((p, i) => {
-                const cant = porProducto + (i < resto ? 1 : 0);
-                if (cant > 0) inv[p.nombre] = (inv[p.nombre] || 0) + cant;
-            });
-        });
-        produccion.inventarioInicial = inv;
-        produccion.inventarioDesdeAmasado = true;
-        guardarDatos(datos);
-        return inv;
-    }
+    // CORRECCIÓN: No repartimos bolas automáticamente a los productos.
+    // El inventario inicial por producto empieza vacío. 
+    // Las bolas (stock) se inyectan desde el Amasado y se descuentan cuando hay pedidos.
+    produccion.inventarioInicial = {};
+    guardarDatos(datos);
+    return produccion.inventarioInicial;
+}
 
     const fechaAnt = new Date(fecha);
     fechaAnt.setDate(fechaAnt.getDate() - 1);

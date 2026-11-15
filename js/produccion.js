@@ -1,13 +1,12 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCCIÓN (v2.1)
+ * MÓDULO: PRODUCCIÓN (v3 - Espejo de Stock)
  * ============================================================
- * Cambios v2.1:
- *   - Corregido: Al inicializar el inventario, NO se reparten 
- *     las bolas entre los productos. El inventario por producto
- *     empieza a 0 y se llena con los pedidos de los clientes.
- *
- * Dependencias: datos.js, utilidades.js, productos.js, clientes.js, amasado.js
+ * - El inventario por producto se calcula dinámicamente 
+ *   restando las bolas consumidas por todos los productos.
+ * - Si pides una Mediana Americana (que usa bola Grande), 
+ *   resta de las bolas Grandes. El inventario de los demás 
+ *   productos que usan bola Grande también lo refleja.
  * ============================================================
  */
 
@@ -46,20 +45,19 @@ function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
 function inicializarInventario(datos, fecha) {
     const produccion = obtenerProduccionDia(datos, fecha);
 
-    // Si ya hay datos, no hacemos nada
+    // El inventario manual se respeta si ya tiene datos
     if (produccion.inventarioInicial && Object.keys(produccion.inventarioInicial).length > 0) {
         return produccion.inventarioInicial;
     }
 
-    // CORRECCIÓN: El inventario inicial por producto empieza vacío.
-    // Las bolas (stock) se inyectan desde el Amasado y se descuentan cuando hay pedidos.
+    // Dejamos el inventario vacío. La vista calculará el "espejo" automáticamente.
     produccion.inventarioInicial = {};
     guardarDatos(datos);
     return produccion.inventarioInicial;
 }
 
 // ============================================================
-// 3. CÁLCULOS DE PRODUCCIÓN
+// 3. CÁLCULOS DE PRODUCCIÓN Y STOCK
 // ============================================================
 
 function calcularVentasDiarias(pedidos) {
@@ -76,13 +74,34 @@ function calcularVentasDiarias(pedidos) {
     return ventas;
 }
 
-function calcularInventarioFinal(inv, ventas) {
-    const final = {};
-    const todos = new Set([...Object.keys(inv || {}), ...Object.keys(ventas || {})]);
-    todos.forEach(n => {
-        final[n] = (parseFloat(inv?.[n]) || 0) - (parseFloat(ventas?.[n]) || 0);
+// ESTA ES LA FUNCIÓN QUE HACE LA MAGIA DEL ESPEJO
+function calcularInventarioVirtual(datos, produccion, fecha) {
+    const productosActivos = obtenerProductosActivos(datos);
+    const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
+    const stockBolas = obtenerStockBolasInicial(datos, fecha);
+    const invVirtual = {};
+
+    // 1. Calcular cuántas bolas de cada tipo se han consumido en TOTAL hoy
+    const consumoPorTipo = {};
+    Object.keys(ventasDiarias).forEach(prodNombre => {
+        const cant = ventasDiarias[prodNombre];
+        const prod = productosActivos.find(p => p.nombre === prodNombre);
+        if (prod && prod.tipoBola) {
+            consumoPorTipo[prod.tipoBola] = (consumoPorTipo[prod.tipoBola] || 0) + cant;
+        }
     });
-    return final;
+
+    // 2. Calcular el inventario virtual para cada producto
+    productosActivos.forEach(p => {
+        const tipo = p.tipoBola;
+        const bolasTotalesTipo = stockBolas[tipo] || 0;
+        const consumidoTipo = consumoPorTipo[tipo] || 0;
+        
+        // Lo que le queda a este producto = (Bolas totales de su tipo) - (Lo consumido por TODOS los productos de su tipo)
+        invVirtual[p.nombre] = bolasTotalesTipo - consumidoTipo;
+    });
+
+    return { invVirtual, ventasDiarias };
 }
 
 function calcularCosteMateriaPrima(datos, ventas) {
@@ -222,14 +241,12 @@ function renderizarProduccion(fechaParam) {
             const productosActivos = obtenerProductosActivos(datos);
             const clientesActivos = obtenerClientesActivos(datos);
 
-            if (!produccion.inventarioInicial || Object.keys(produccion.inventarioInicial).length === 0) {
-                inicializarInventario(datos, fecha);
-            }
+            // Usamos el inventario virtual para la vista
+            const { invVirtual, ventasDiarias } = calcularInventarioVirtual(datos, produccion, fecha);
 
             const ordenAmasado = buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha);
             const esInventarioAmasado = produccion.inventarioDesdeAmasado || !!ordenAmasado;
 
-            const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
             const costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
             const costeMOD = redondear2((produccion.horasTrabajadas || 0) * datos.configuracion.costeManoObraHora);
             const ventasGen = calcularVentasGeneradas(datos, ventasDiarias);
@@ -382,7 +399,7 @@ function renderizarProduccion(fechaParam) {
                             <thead>
                                 <tr>
                                     <th>Producto</th>
-                                    <th>Inicial</th>
+                                    <th>Inicial (Reflejo)</th>
                                     <th>Ventas</th>
                                     <th>Final</th>
                                 </tr>
@@ -390,43 +407,28 @@ function renderizarProduccion(fechaParam) {
                             <tbody>
             `;
 
-            const todosProductos = new Set([
-                ...Object.keys(produccion.inventarioInicial || {}),
-                ...Object.keys(ventasDiarias)
-            ]);
+            // AHORA PINTAMOS TODOS LOS PRODUCTOS ACTIVOS USANDO EL INVENTARIO VIRTUAL
+            productosActivos.forEach(p => {
+                const nombre = p.nombre;
+                const inicial = parseFloat(invVirtual[nombre]) || 0;
+                const ventas = parseFloat(ventasDiarias?.[nombre]) || 0;
+                const final = inicial - ventas;
 
-            if (todosProductos.size === 0) {
                 html += `
-                    <tr>
-                        <td colspan="4" class="text-center" style="padding: 20px; color: #999;">
-                            No hay productos registrados
+                    <tr data-inventario-producto="${escaparHTML(nombre)}">
+                        <td><strong>${escaparHTML(nombre)}</strong></td>
+                        <td>
+                            <input type="number" min="0" step="1" disabled
+                                   style="width: 80px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5;"
+                                   value="${inicial}"
+                                   data-producto="${escaparHTML(nombre)}">
                         </td>
+                        <td class="inventario-ventas">${ventas}</td>
+                        <td><strong class="inventario-final">${final}</strong></td>
                     </tr>
                 `;
-            } else {
-                todosProductos.forEach(nombre => {
-                    const inicial = parseFloat(produccion.inventarioInicial?.[nombre]) || 0;
-                    const ventas = parseFloat(ventasDiarias?.[nombre]) || 0;
-                    const final = inicial - ventas;
+            });
 
-                    html += `
-                        <tr data-inventario-producto="${escaparHTML(nombre)}">
-                            <td><strong>${escaparHTML(nombre)}</strong></td>
-                            <td>
-                                <input type="number" min="0" step="1"
-                                       style="width: 80px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
-                                       value="${inicial}"
-                                       data-producto="${escaparHTML(nombre)}"
-                                       onchange="actualizarInventarioInicial('${escaparHTML(nombre).replace(/'/g, "\\'")}', this.value)">
-                            </td>
-                            <td class="inventario-ventas">${ventas}</td>
-                            <td><strong class="inventario-final">${final}</strong></td>
-                        </tr>
-                    `;
-                });
-            }
-
-            // --- v2: tabla de stock de bolas (CONTINUACIÓN, no nuevo html +=) ---
             html += `
                             </tbody>
                         </table>
@@ -493,7 +495,6 @@ function renderizarProduccion(fechaParam) {
                 `;
             }
 
-            // Cierre único y final de la vista
             html += `
                             </tbody>
                         </table>
@@ -526,7 +527,8 @@ function actualizarVistaSinReRender() {
     const datos = cargarDatos();
     const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
-    const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
+
+    const { invVirtual, ventasDiarias } = calcularInventarioVirtual(datos, produccion, fecha);
 
     // --- 1. Actualizar totales por fila ---
     const filas = document.querySelectorAll('#tabla-pedidos tbody tr[data-fila-index]');
@@ -546,16 +548,19 @@ function actualizarVistaSinReRender() {
         }
     });
 
-    // --- 2. Actualizar tabla de inventario por producto ---
+    // --- 2. Actualizar tabla de inventario por producto (Usando el virtual) ---
     const filasInv = document.querySelectorAll('#tabla-inventario tbody tr[data-inventario-producto]');
     filasInv.forEach(fila => {
         const producto = fila.dataset.inventarioProducto;
-        const inicial = parseFloat(produccion.inventarioInicial?.[producto]) || 0;
+        const inicial = parseFloat(invVirtual[producto]) || 0;
         const ventas = parseFloat(ventasDiarias?.[producto]) || 0;
         const final = inicial - ventas;
 
+        const inputInicial = fila.querySelector('input[data-producto]');
         const ventasCell = fila.querySelector('.inventario-ventas');
         const finalCell = fila.querySelector('.inventario-final');
+
+        if (inputInicial) inputInicial.value = inicial;
         if (ventasCell) ventasCell.textContent = ventas;
         if (finalCell) finalCell.textContent = final;
     });
@@ -834,12 +839,6 @@ function guardarHorasTrabajadas(valor) {
 }
 
 function actualizarInventarioInicial(producto, valor) {
-    const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
-    const produccion = obtenerProduccionDia(datos, fecha);
-
-    if (!produccion.inventarioInicial) produccion.inventarioInicial = {};
-    produccion.inventarioInicial[producto] = aEntero(valor);
-    guardarDatos(datos);
-    actualizarVistaSinReRender();
+    // ESTA FUNCIÓN YA NO SE USA PORQUE EL INVENTARIO ES AUTOMÁTICO
+    // La dejamos vacía por si acaso el HTML intenta llamarla
 }

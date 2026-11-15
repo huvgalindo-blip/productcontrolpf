@@ -1,18 +1,13 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCCIÓN (v4 - Control Estricto de Stock)
+ * MÓDULO: PRODUCCIÓN (v4.1 - Control Estricto + Fecha Fija)
  * ============================================================
- * Lógica:
- * - El inventario de productos solo muestra lo que se pide.
- * - El stock de bolas es el que controla el límite.
- * - Si el consumo de un tipo de bola supera el inicial, 
- *   se marca en rojo (Déficit) y avisa.
+ * - Evita el parpadeo y el salto de fecha al actualizar pedidos.
  * ============================================================
  */
 
-// ============================================================
-// 1. OBTENER / CREAR DÍA DE PRODUCCIÓN
-// ============================================================
+// Variable global para no perder la fecha al actualizar
+let fechaActualProduccion = null;
 
 function obtenerProduccionDia(datos, fecha) {
     if (!datos.produccion[fecha]) {
@@ -24,10 +19,6 @@ function obtenerProduccionDia(datos, fecha) {
     }
     return datos.produccion[fecha];
 }
-
-// ============================================================
-// 2. INICIALIZACIÓN DE INVENTARIO
-// ============================================================
 
 function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
     if (typeof buscarOrdenAmasadoPorFechaUso === 'function') {
@@ -44,17 +35,11 @@ function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
 
 function inicializarInventario(datos, fecha) {
     const produccion = obtenerProduccionDia(datos, fecha);
-
-    // El inventario empieza vacío para que solo se llenen los productos que se pidan.
     if (!produccion.inventarioInicial) {
         produccion.inventarioInicial = {};
     }
     return produccion.inventarioInicial;
 }
-
-// ============================================================
-// 3. CÁLCULOS DE PRODUCCIÓN
-// ============================================================
 
 function calcularVentasDiarias(pedidos) {
     const ventas = {};
@@ -102,7 +87,7 @@ function calcularTotalPedido(productos) {
 }
 
 // ============================================================
-// 3.1 STOCK DE BOLAS (v2)
+// 3.1 STOCK DE BOLAS
 // ============================================================
 
 function obtenerStockBolasInicial(datos, fecha) {
@@ -181,7 +166,7 @@ function calcularEstadoStockBolas(datos, fecha) {
 }
 
 // ============================================================
-// 4. RENDERIZADO COMPLETO DE LA VISTA PRODUCCIÓN
+// 4. RENDERIZADO COMPLETO
 // ============================================================
 
 function renderizarProduccion(fechaParam) {
@@ -191,9 +176,14 @@ function renderizarProduccion(fechaParam) {
     setTimeout(() => {
         try {
             const datos = cargarDatos();
+            
+            // MAGIA: Si no nos pasan fecha, usamos la guardada o la de hoy
             const fecha = fechaParam
+                || fechaActualProduccion
                 || document.getElementById('fecha-produccion')?.value
                 || obtenerFechaActual();
+                
+            fechaActualProduccion = fecha; // La guardamos para el siguiente render
 
             if (!datos.produccion[fecha]) {
                 datos.produccion[fecha] = {
@@ -239,7 +229,6 @@ function renderizarProduccion(fechaParam) {
                         </div>
                     </div>
 
-                    <!-- ALERTA GLOBAL DE DÉFICIT -->
                     ${hayDeficit ? `
                         <div style="margin-bottom: 20px; padding: 15px; background: #FFEBEE; border-left: 4px solid var(--error); border-radius: 8px; color: #C62828;">
                             <strong>⚠️ ALERTA DE STOCK:</strong> Te has pasado de las bolas disponibles. 
@@ -382,7 +371,6 @@ function renderizarProduccion(fechaParam) {
                             <tbody>
             `;
 
-            // Solo mostramos los productos que tienen ventas > 0
             const productosConPedidos = Object.keys(ventasDiarias).filter(prod => ventasDiarias[prod] > 0);
 
             if (productosConPedidos.length === 0) {
@@ -482,12 +470,11 @@ function renderizarProduccion(fechaParam) {
 }
 
 // ============================================================
-// 4.1 ACTUALIZACIÓN QUIRÚRGICA (SIN RE-RENDER)
+// 4.1 ACTUALIZACIÓN (CONSERVANDO LA FECHA)
 // ============================================================
 
 function actualizarVistaSinReRender() {
-    // Para simplificar y asegurar que el bloqueo de stock se ve bien,
-    // forzamos un re-renderizado completo al cambiar un pedido.
+    // Al llamar a renderizarProduccion sin parámetros, usará fechaActualProduccion
     renderizarProduccion();
 }
 
@@ -497,6 +484,7 @@ function actualizarVistaSinReRender() {
 
 function cambiarFechaProduccion(fecha) {
     if (!fecha) return;
+    fechaActualProduccion = fecha; // Actualizamos la fecha global
     renderizarProduccion(fecha);
 }
 
@@ -505,7 +493,9 @@ function irDiaAnterior() {
     if (!input) return;
     const d = new Date(input.value);
     d.setDate(d.getDate() - 1);
-    renderizarProduccion(d.toISOString().split('T')[0]);
+    const fecha = d.toISOString().split('T')[0];
+    fechaActualProduccion = fecha;
+    renderizarProduccion(fecha);
 }
 
 function irDiaSiguiente() {
@@ -513,11 +503,15 @@ function irDiaSiguiente() {
     if (!input) return;
     const d = new Date(input.value);
     d.setDate(d.getDate() + 1);
-    renderizarProduccion(d.toISOString().split('T')[0]);
+    const fecha = d.toISOString().split('T')[0];
+    fechaActualProduccion = fecha;
+    renderizarProduccion(fecha);
 }
 
 function irHoy() {
-    renderizarProduccion(obtenerFechaActual());
+    const fecha = obtenerFechaActual();
+    fechaActualProduccion = fecha;
+    renderizarProduccion(fecha);
 }
 
 function irDiaAmasado() {
@@ -540,6 +534,7 @@ function irDiaAmasado() {
         return;
     }
 
+    fechaActualProduccion = ordenObjetivo.fechaUso;
     renderizarProduccion(ordenObjetivo.fechaUso);
     mostrarNotificacion(`📅 Mostrando producción del ${formatearFechaLarga(ordenObjetivo.fechaUso)}`, 'info');
 }
@@ -550,7 +545,7 @@ function irDiaAmasado() {
 
 function añadirFilaPedido() {
     const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const fecha = fechaActualProduccion || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
 
     const productos = {};
@@ -575,7 +570,7 @@ function añadirFilaPedido() {
 
 function duplicarFilaPedido(index) {
     const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const fecha = fechaActualProduccion || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
 
     if (index < 0 || index >= produccion.pedidos.length) return;
@@ -601,7 +596,7 @@ function eliminarFilaPedido(index) {
     if (!confirm('⚠️ ¿Eliminar esta fila?')) return;
 
     const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const fecha = fechaActualProduccion || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
 
     if (index >= 0 && index < produccion.pedidos.length) {
@@ -616,7 +611,7 @@ function limpiarPedidosFinalizados() {
     if (!confirm('⚠️ ¿Eliminar todos los pedidos finalizados?')) return;
 
     const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const fecha = fechaActualProduccion || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
 
     const antes = produccion.pedidos.length;
@@ -635,7 +630,7 @@ function limpiarPedidosFinalizados() {
 
 function actualizarPedido(index) {
     const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const fecha = fechaActualProduccion || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
 
     if (index >= produccion.pedidos.length) return;
@@ -664,7 +659,7 @@ function actualizarPedido(index) {
     }
 
     guardarDatos(datos);
-    actualizarVistaSinReRender(); // Esto forzará el re-render para ver los avisos
+    actualizarVistaSinReRender();
 }
 
 // ============================================================
@@ -673,7 +668,7 @@ function actualizarPedido(index) {
 
 function guardarHorasTrabajadas(valor) {
     const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
+    const fecha = fechaActualProduccion || obtenerFechaActual();
     const produccion = obtenerProduccionDia(datos, fecha);
     produccion.horasTrabajadas = aDecimal(valor);
     guardarDatos(datos);

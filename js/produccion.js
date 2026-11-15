@@ -1,12 +1,12 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCCIÓN (v3 - Espejo de Stock)
+ * MÓDULO: PRODUCCIÓN (v4 - Control Estricto de Stock)
  * ============================================================
- * - El inventario por producto se calcula dinámicamente 
- *   restando las bolas consumidas por todos los productos.
- * - Si pides una Mediana Americana (que usa bola Grande), 
- *   resta de las bolas Grandes. El inventario de los demás 
- *   productos que usan bola Grande también lo refleja.
+ * Lógica:
+ * - El inventario de productos solo muestra lo que se pide.
+ * - El stock de bolas es el que controla el límite.
+ * - Si el consumo de un tipo de bola supera el inicial, 
+ *   se marca en rojo (Déficit) y avisa.
  * ============================================================
  */
 
@@ -45,19 +45,15 @@ function buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha) {
 function inicializarInventario(datos, fecha) {
     const produccion = obtenerProduccionDia(datos, fecha);
 
-    // El inventario manual se respeta si ya tiene datos
-    if (produccion.inventarioInicial && Object.keys(produccion.inventarioInicial).length > 0) {
-        return produccion.inventarioInicial;
+    // El inventario empieza vacío para que solo se llenen los productos que se pidan.
+    if (!produccion.inventarioInicial) {
+        produccion.inventarioInicial = {};
     }
-
-    // Dejamos el inventario vacío. La vista calculará el "espejo" automáticamente.
-    produccion.inventarioInicial = {};
-    guardarDatos(datos);
     return produccion.inventarioInicial;
 }
 
 // ============================================================
-// 3. CÁLCULOS DE PRODUCCIÓN Y STOCK
+// 3. CÁLCULOS DE PRODUCCIÓN
 // ============================================================
 
 function calcularVentasDiarias(pedidos) {
@@ -72,36 +68,6 @@ function calcularVentasDiarias(pedidos) {
         }
     });
     return ventas;
-}
-
-// ESTA ES LA FUNCIÓN QUE HACE LA MAGIA DEL ESPEJO
-function calcularInventarioVirtual(datos, produccion, fecha) {
-    const productosActivos = obtenerProductosActivos(datos);
-    const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
-    const stockBolas = obtenerStockBolasInicial(datos, fecha);
-    const invVirtual = {};
-
-    // 1. Calcular cuántas bolas de cada tipo se han consumido en TOTAL hoy
-    const consumoPorTipo = {};
-    Object.keys(ventasDiarias).forEach(prodNombre => {
-        const cant = ventasDiarias[prodNombre];
-        const prod = productosActivos.find(p => p.nombre === prodNombre);
-        if (prod && prod.tipoBola) {
-            consumoPorTipo[prod.tipoBola] = (consumoPorTipo[prod.tipoBola] || 0) + cant;
-        }
-    });
-
-    // 2. Calcular el inventario virtual para cada producto
-    productosActivos.forEach(p => {
-        const tipo = p.tipoBola;
-        const bolasTotalesTipo = stockBolas[tipo] || 0;
-        const consumidoTipo = consumoPorTipo[tipo] || 0;
-        
-        // Lo que le queda a este producto = (Bolas totales de su tipo) - (Lo consumido por TODOS los productos de su tipo)
-        invVirtual[p.nombre] = bolasTotalesTipo - consumidoTipo;
-    });
-
-    return { invVirtual, ventasDiarias };
 }
 
 function calcularCosteMateriaPrima(datos, ventas) {
@@ -241,11 +207,14 @@ function renderizarProduccion(fechaParam) {
             const productosActivos = obtenerProductosActivos(datos);
             const clientesActivos = obtenerClientesActivos(datos);
 
-            // Usamos el inventario virtual para la vista
-            const { invVirtual, ventasDiarias } = calcularInventarioVirtual(datos, produccion, fecha);
+            inicializarInventario(datos, fecha);
 
             const ordenAmasado = buscarOrdenAmasadoPorFechaUsoSeguro(datos, fecha);
             const esInventarioAmasado = produccion.inventarioDesdeAmasado || !!ordenAmasado;
+
+            const ventasDiarias = calcularVentasDiarias(produccion.pedidos);
+            const estadoBolas = calcularEstadoStockBolas(datos, fecha);
+            const hayDeficit = estadoBolas.some(f => f.deficit);
 
             const costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
             const costeMOD = redondear2((produccion.horasTrabajadas || 0) * datos.configuracion.costeManoObraHora);
@@ -269,6 +238,14 @@ function renderizarProduccion(fechaParam) {
                             <button class="btn btn-success btn-sm" onclick="irDiaAmasado()" title="Ir a la fecha de uso del amasado" style="background: #28a745;">🔄 Amasado</button>
                         </div>
                     </div>
+
+                    <!-- ALERTA GLOBAL DE DÉFICIT -->
+                    ${hayDeficit ? `
+                        <div style="margin-bottom: 20px; padding: 15px; background: #FFEBEE; border-left: 4px solid var(--error); border-radius: 8px; color: #C62828;">
+                            <strong>⚠️ ALERTA DE STOCK:</strong> Te has pasado de las bolas disponibles. 
+                            Revisa los pedidos, ya que no hay suficiente masa para producir todo lo solicitado.
+                        </div>
+                    ` : ''}
 
                     <div class="tabla-container">
                         <div class="flex-between mb-10">
@@ -392,42 +369,41 @@ function renderizarProduccion(fechaParam) {
                     </div>
 
                     <div class="vista-header" style="margin-top: 10px;">
-                        <h3>📦 Inventario</h3>
+                        <h3>📦 Inventario (Solo productos con pedidos)</h3>
                     </div>
                     <div class="tabla-container">
                         <table id="tabla-inventario">
                             <thead>
                                 <tr>
                                     <th>Producto</th>
-                                    <th>Inicial (Reflejo)</th>
-                                    <th>Ventas</th>
-                                    <th>Final</th>
+                                    <th>Producido</th>
                                 </tr>
                             </thead>
                             <tbody>
             `;
 
-            // AHORA PINTAMOS TODOS LOS PRODUCTOS ACTIVOS USANDO EL INVENTARIO VIRTUAL
-            productosActivos.forEach(p => {
-                const nombre = p.nombre;
-                const inicial = parseFloat(invVirtual[nombre]) || 0;
-                const ventas = parseFloat(ventasDiarias?.[nombre]) || 0;
-                const final = inicial - ventas;
+            // Solo mostramos los productos que tienen ventas > 0
+            const productosConPedidos = Object.keys(ventasDiarias).filter(prod => ventasDiarias[prod] > 0);
 
+            if (productosConPedidos.length === 0) {
                 html += `
-                    <tr data-inventario-producto="${escaparHTML(nombre)}">
-                        <td><strong>${escaparHTML(nombre)}</strong></td>
-                        <td>
-                            <input type="number" min="0" step="1" disabled
-                                   style="width: 80px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; background: #f5f5f5;"
-                                   value="${inicial}"
-                                   data-producto="${escaparHTML(nombre)}">
+                    <tr>
+                        <td colspan="2" class="text-center" style="padding: 20px; color: #999;">
+                            No hay productos pedidos todavía. Añade un pedido arriba.
                         </td>
-                        <td class="inventario-ventas">${ventas}</td>
-                        <td><strong class="inventario-final">${final}</strong></td>
                     </tr>
                 `;
-            });
+            } else {
+                productosConPedidos.forEach(nombre => {
+                    const cant = ventasDiarias[nombre];
+                    html += `
+                        <tr>
+                            <td><strong>${escaparHTML(nombre)}</strong></td>
+                            <td style="font-weight: bold; color: var(--primary); font-size: 1.1rem;">${cant} uds</td>
+                        </tr>
+                    `;
+                });
+            }
 
             html += `
                             </tbody>
@@ -450,13 +426,11 @@ function renderizarProduccion(fechaParam) {
                             <tbody>
             `;
 
-            const estadoBolas = calcularEstadoStockBolas(datos, fecha);
-
             if (estadoBolas.length === 0) {
                 html += `
                     <tr>
                         <td colspan="4" class="text-center" style="padding: 20px; color: #999;">
-                            Sin stock de bolas para este día (aplica una orden de amasado o ajusta manualmente)
+                            Sin stock de bolas para este día (aplica una orden de amasado)
                         </td>
                     </tr>
                 `;
@@ -464,7 +438,7 @@ function renderizarProduccion(fechaParam) {
                 estadoBolas.forEach(fila => {
                     const colorFila = fila.deficit ? 'background: #FFEBEE;' : '';
                     const colorRestante = fila.deficit
-                        ? 'color: var(--error); font-weight: bold;'
+                        ? 'color: var(--error); font-weight: bold; font-size: 1.1rem;'
                         : fila.restante === 0
                             ? 'color: var(--warning); font-weight: bold;'
                             : 'color: var(--success); font-weight: bold;';
@@ -476,23 +450,11 @@ function renderizarProduccion(fechaParam) {
                             <td>${fila.consumido}</td>
                             <td style="${colorRestante}">
                                 ${fila.restante}
-                                ${fila.deficit ? ' ⚠️' : ''}
+                                ${fila.deficit ? ' ⚠️ FALTAN BOLAS' : ''}
                             </td>
                         </tr>
                     `;
                 });
-            }
-
-            const hayDeficit = estadoBolas.some(f => f.deficit);
-            if (hayDeficit) {
-                const tiposConDeficit = estadoBolas.filter(f => f.deficit).map(f => f.tipo).join(', ');
-                html += `
-                    <tr>
-                        <td colspan="4" style="background: #FFEBEE; color: #C62828; padding: 10px; font-size: 0.85rem;">
-                            ⚠️ <strong>Déficit de bolas:</strong> ${escaparHTML(tiposConDeficit)}. Revisa los pedidos o ajusta el amasado.
-                        </td>
-                    </tr>
-                `;
             }
 
             html += `
@@ -524,129 +486,9 @@ function renderizarProduccion(fechaParam) {
 // ============================================================
 
 function actualizarVistaSinReRender() {
-    const datos = cargarDatos();
-    const fecha = document.getElementById('fecha-produccion')?.value || obtenerFechaActual();
-    const produccion = obtenerProduccionDia(datos, fecha);
-
-    const { invVirtual, ventasDiarias } = calcularInventarioVirtual(datos, produccion, fecha);
-
-    // --- 1. Actualizar totales por fila ---
-    const filas = document.querySelectorAll('#tabla-pedidos tbody tr[data-fila-index]');
-    filas.forEach(fila => {
-        const index = parseInt(fila.dataset.filaIndex);
-        const pedido = produccion.pedidos[index];
-        if (!pedido) return;
-
-        const total = calcularTotalPedido(pedido.productos);
-        const totalCell = fila.querySelector(`[data-total-index="${index}"]`);
-        if (totalCell) totalCell.textContent = total;
-
-        if (pedido.finalizado) {
-            fila.classList.add('finalizado');
-        } else {
-            fila.classList.remove('finalizado');
-        }
-    });
-
-    // --- 2. Actualizar tabla de inventario por producto (Usando el virtual) ---
-    const filasInv = document.querySelectorAll('#tabla-inventario tbody tr[data-inventario-producto]');
-    filasInv.forEach(fila => {
-        const producto = fila.dataset.inventarioProducto;
-        const inicial = parseFloat(invVirtual[producto]) || 0;
-        const ventas = parseFloat(ventasDiarias?.[producto]) || 0;
-        const final = inicial - ventas;
-
-        const inputInicial = fila.querySelector('input[data-producto]');
-        const ventasCell = fila.querySelector('.inventario-ventas');
-        const finalCell = fila.querySelector('.inventario-final');
-
-        if (inputInicial) inputInicial.value = inicial;
-        if (ventasCell) ventasCell.textContent = ventas;
-        if (finalCell) finalCell.textContent = final;
-    });
-
-    // --- 3. v2: actualizar tabla de stock de bolas ---
-    const tablaBolas = document.getElementById('tabla-stock-bolas');
-    if (tablaBolas) {
-        const tbody = tablaBolas.querySelector('tbody');
-        const estadoBolas = calcularEstadoStockBolas(datos, fecha);
-
-        if (estadoBolas.length === 0) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="4" class="text-center" style="padding: 20px; color: #999;">
-                        Sin stock de bolas para este día
-                    </td>
-                </tr>
-            `;
-        } else {
-            let htmlBolas = '';
-            estadoBolas.forEach(fila => {
-                const colorFila = fila.deficit ? 'background: #FFEBEE;' : '';
-                const colorRestante = fila.deficit
-                    ? 'color: var(--error); font-weight: bold;'
-                    : fila.restante === 0
-                        ? 'color: var(--warning); font-weight: bold;'
-                        : 'color: var(--success); font-weight: bold;';
-
-                htmlBolas += `
-                    <tr style="${colorFila}">
-                        <td><strong>${escaparHTML(fila.tipo)}</strong></td>
-                        <td>${fila.inicial}</td>
-                        <td>${fila.consumido}</td>
-                        <td style="${colorRestante}">
-                            ${fila.restante}
-                            ${fila.deficit ? ' ⚠️' : ''}
-                        </td>
-                    </tr>
-                `;
-            });
-
-            const hayDeficit = estadoBolas.some(f => f.deficit);
-            if (hayDeficit) {
-                const tiposConDeficit = estadoBolas.filter(f => f.deficit).map(f => f.tipo).join(', ');
-                htmlBolas += `
-                    <tr>
-                        <td colspan="4" style="background: #FFEBEE; color: #C62828; padding: 10px; font-size: 0.85rem;">
-                            ⚠️ <strong>Déficit de bolas:</strong> ${escaparHTML(tiposConDeficit)}. Revisa los pedidos o ajusta el amasado.
-                        </td>
-                    </tr>
-                `;
-            }
-
-            tbody.innerHTML = htmlBolas;
-        }
-    }
-
-    // --- 4. Actualizar resumen del día ---
-    const costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
-    const costeMOD = redondear2((produccion.horasTrabajadas || 0) * datos.configuracion.costeManoObraHora);
-    const ventasGen = calcularVentasGeneradas(datos, ventasDiarias);
-    const costeTotal = redondear2(costeMP + costeMOD);
-    const margen = calcularMargen(ventasGen, costeTotal);
-
-    const elCosteMP = document.getElementById('resumen-costeMP');
-    const elCosteMOD = document.getElementById('resumen-costeMOD');
-    const elCosteTotal = document.getElementById('resumen-costeTotal');
-    const elVentas = document.getElementById('resumen-ventas');
-    const elMargen = document.getElementById('resumen-margen');
-    const elPedidos = document.getElementById('resumen-pedidos');
-    const elUnidades = document.getElementById('resumen-unidades');
-    const elContador = document.getElementById('contador-pedidos');
-
-    if (elCosteMP) elCosteMP.textContent = costeMP.toFixed(2) + ' €';
-    if (elCosteMOD) elCosteMOD.textContent = costeMOD.toFixed(2) + ' €';
-    if (elCosteTotal) elCosteTotal.textContent = costeTotal.toFixed(2) + ' €';
-    if (elVentas) elVentas.textContent = ventasGen.toFixed(2) + ' €';
-    if (elMargen) {
-        elMargen.textContent = margen + '%';
-        elMargen.className = 'value ' + (margen > 0 ? 'success' : 'danger');
-    }
-    if (elPedidos) elPedidos.textContent = produccion.pedidos.length;
-    if (elUnidades) elUnidades.textContent = sumaValores(ventasDiarias);
-    if (elContador) elContador.textContent = produccion.pedidos.length;
-
-    guardarDatos(datos);
+    // Para simplificar y asegurar que el bloqueo de stock se ve bien,
+    // forzamos un re-renderizado completo al cambiar un pedido.
+    renderizarProduccion();
 }
 
 // ============================================================
@@ -822,7 +664,7 @@ function actualizarPedido(index) {
     }
 
     guardarDatos(datos);
-    actualizarVistaSinReRender();
+    actualizarVistaSinReRender(); // Esto forzará el re-render para ver los avisos
 }
 
 // ============================================================
@@ -836,9 +678,4 @@ function guardarHorasTrabajadas(valor) {
     produccion.horasTrabajadas = aDecimal(valor);
     guardarDatos(datos);
     actualizarVistaSinReRender();
-}
-
-function actualizarInventarioInicial(producto, valor) {
-    // ESTA FUNCIÓN YA NO SE USA PORQUE EL INVENTARIO ES AUTOMÁTICO
-    // La dejamos vacía por si acaso el HTML intenta llamarla
 }

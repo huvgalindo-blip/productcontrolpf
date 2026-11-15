@@ -1,12 +1,11 @@
 /**
  * ============================================================
- * MÓDULO: AMASADO (v4)
+ * MÓDULO: AMASADO (v5)
  * ============================================================
- * Cambios v4:
- *   - Gestión completa de tipos de bola (crear/editar/borrar)
- *   - Los tipos de bola se gestionan desde la vista de amasado
- *   - Borrar bloqueado si el tipo está en uso por un producto
- *   - Cambiar nombre: actualiza productos automáticamente
+ * Cambios v5:
+ *   - Historial completo de amasados (ver todos los guardados)
+ *   - Botón de historial en la vista de amasado
+ *   - Permite borrar amasados huérfanos o erróneos
  *
  * Dependencias: datos.js, utilidades.js, productos.js
  * ============================================================
@@ -537,6 +536,7 @@ function renderizarOrdenAmasado(fechaParam) {
                         <div class="flex gap-10" style="align-items: center;">
                             <button class="btn btn-primary btn-sm" onclick="cambiarVista('calculadoraMasa')" title="Abrir calculadora de masa">🧮 Calculadora</button>
                             <button class="btn btn-secondary btn-sm" onclick="abrirGestorTiposBola()" title="Gestionar tipos de bola">🔧 Tipos de bola</button>
+                            <button class="btn btn-info btn-sm" onclick="abrirHistorialAmasados()" title="Ver historial de amasados" style="background: #17a2b8; color: white;">📜 Historial</button>
                             <span class="subtitle" style="font-weight: bold; color: ${orden.aplicadoAProduccion ? 'var(--success)' : 'var(--warning)'};">
                                 ${orden.aplicadoAProduccion ? '✅ Aplicado a producción' : '⏳ Pendiente de aplicar'}
                             </span>
@@ -1118,5 +1118,107 @@ function exportarOrdenAmasado() {
     } catch (error) {
         console.error('Error al exportar:', error);
         mostrarNotificacion('❌ Error al exportar CSV', 'error');
+    }
+}
+
+// ============================================================
+// 11. HISTORIAL DE AMASADOS
+// ============================================================
+
+function abrirHistorialAmasados() {
+    const datos = cargarDatos();
+    const ordenes = datos.ordenesAmasado || {};
+    const fechas = Object.keys(ordenes).sort().reverse(); // Más recientes primero
+
+    let filasHTML = '';
+    
+    if (fechas.length === 0) {
+        filasHTML = `
+            <tr>
+                <td colspan="5" class="text-center" style="padding: 20px; color: #999;">
+                    No hay amasados registrados.
+                </td>
+            </tr>
+        `;
+    } else {
+        fechas.forEach(fecha => {
+            const orden = ordenes[fecha];
+            const resumen = obtenerResumenOrdenAmasado(orden);
+            const fechaUsoFormat = formatearFecha(orden.fechaUso || fecha);
+            const fechaAmasFormat = formatearFecha(fecha);
+            
+            // Comprobar si está caducado (fecha de uso pasada y sin aplicar)
+            const hoy = obtenerFechaActual();
+            const caducado = !orden.aplicadoAProduccion && orden.fechaUso < hoy;
+            
+            const estadoHTML = orden.aplicadoAProduccion 
+                ? `<span style="color: var(--success); font-weight: bold;">✅ Aplicado</span>` 
+                : `<span style="color: var(--warning); font-weight: bold;">⏳ Pendiente</span>`;
+
+            filasHTML += `
+                <tr style="${caducado ? 'background: #FFEBEE;' : ''}">
+                    <td><strong>${fechaAmasFormat}</strong></td>
+                    <td>${fechaUsoFormat}</td>
+                    <td>${resumen.totalBolas} bolas<br><small>${resumen.pesoTotal} kg</small></td>
+                    <td>${estadoHTML}</td>
+                    <td>
+                        <button class="btn btn-primary btn-sm" onclick="cerrarHistorialAmasados(); renderizarOrdenAmasado('${fecha}')" title="Ver">👁️</button>
+                        <button class="btn btn-danger btn-sm" onclick="borrarAmasadoDesdeHistorial('${fecha}')" title="Eliminar">🗑️</button>
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    const modalHTML = `
+        <div id="modal-historial-amasados" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
+            <div style="background: white; padding: 25px; border-radius: 10px; max-width: 800px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <div class="flex-between" style="margin-bottom: 15px;">
+                    <h3 style="color: var(--secondary); margin: 0;">📜 Historial de Amasados</h3>
+                    <button class="btn btn-secondary btn-sm" onclick="cerrarHistorialAmasados()">✖ Cerrar</button>
+                </div>
+                <div class="tabla-container" style="margin: 0;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Amasado</th>
+                                <th>Uso Previsto</th>
+                                <th>Total Bolas</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>${filasHTML}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const previo = document.getElementById('modal-historial-amasados');
+    if (previo) previo.remove();
+    const div = document.createElement('div');
+    div.innerHTML = modalHTML;
+    document.body.appendChild(div.firstElementChild);
+}
+
+function cerrarHistorialAmasados() {
+    const modal = document.getElementById('modal-historial-amasados');
+    if (modal) modal.remove();
+}
+
+function borrarAmasadoDesdeHistorial(fecha) {
+    if (!confirm(`⚠️ ¿Eliminar el amasado del ${formatearFecha(fecha)}?\n\nEsto no afectará a la producción ya guardada.`)) return;
+
+    const datos = cargarDatos();
+    if (datos.ordenesAmasado && datos.ordenesAmasado[fecha]) {
+        delete datos.ordenesAmasado[fecha];
+        guardarDatos(datos);
+        cerrarHistorialAmasados();
+        abrirHistorialAmasados(); // Recargar modal
+        if (document.getElementById('fecha-amasado')?.value === fecha) {
+            renderizarOrdenAmasado(); // Recargar la vista si estábamos viendo ese
+        }
+        mostrarNotificacion('✅ Amasado eliminado', 'success');
     }
 }

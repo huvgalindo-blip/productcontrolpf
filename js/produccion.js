@@ -1,12 +1,11 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCCIÓN (v2)
+ * MÓDULO: PRODUCCIÓN (v2.1)
  * ============================================================
- * Cambios v2:
- *   - Tabla de stock de bolas por tipo (paralela a la de inventario)
- *   - Consumo de bolas calculado desde producto.tipoBola
- *   - Aviso de déficit si el consumo supera el stock
- *   - Mantiene la tabla de inventario por producto para compatibilidad
+ * Cambios v2.1:
+ *   - Corregido: Al inicializar el inventario, NO se reparten 
+ *     las bolas entre los productos. El inventario por producto
+ *     empieza a 0 y se llena con los pedidos de los clientes.
  *
  * Dependencias: datos.js, utilidades.js, productos.js, clientes.js, amasado.js
  * ============================================================
@@ -52,30 +51,11 @@ function inicializarInventario(datos, fecha) {
         return produccion.inventarioInicial;
     }
 
-    // CORRECCIÓN: No repartimos bolas automáticamente a los productos.
-    // El inventario inicial por producto empieza vacío. 
+    // CORRECCIÓN: El inventario inicial por producto empieza vacío.
     // Las bolas (stock) se inyectan desde el Amasado y se descuentan cuando hay pedidos.
     produccion.inventarioInicial = {};
     guardarDatos(datos);
     return produccion.inventarioInicial;
-}
-
-    const fechaAnt = new Date(fecha);
-    fechaAnt.setDate(fechaAnt.getDate() - 1);
-    const fechaAntStr = fechaAnt.toISOString().split('T')[0];
-    const prodAnt = datos.produccion[fechaAntStr];
-
-    if (prodAnt && prodAnt.inventarioFinal) {
-        produccion.inventarioInicial = prodAnt.inventarioFinal;
-        guardarDatos(datos);
-        return prodAnt.inventarioFinal;
-    }
-
-    const inv = {};
-    productos.forEach(p => { inv[p.nombre] = 0; });
-    produccion.inventarioInicial = inv;
-    guardarDatos(datos);
-    return inv;
 }
 
 // ============================================================
@@ -214,6 +194,7 @@ function calcularEstadoStockBolas(datos, fecha) {
 
     return resultado;
 }
+
 // ============================================================
 // 4. RENDERIZADO COMPLETO DE LA VISTA PRODUCCIÓN
 // ============================================================
@@ -536,6 +517,7 @@ function renderizarProduccion(fechaParam) {
         }
     }, 50);
 }
+
 // ============================================================
 // 4.1 ACTUALIZACIÓN QUIRÚRGICA (SIN RE-RENDER)
 // ============================================================

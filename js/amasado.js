@@ -1,13 +1,10 @@
 /**
  * ============================================================
- * MÓDULO: AMASADO (v5)
+ * MÓDULO: AMASADO (v5.1)
  * ============================================================
- * Cambios v5:
- *   - Historial completo de amasados (ver todos los guardados)
- *   - Botón de historial en la vista de amasado
- *   - Permite borrar amasados huérfanos o erróneos
- *
- * Dependencias: datos.js, utilidades.js, productos.js
+ * Cambios v5.1:
+ *   - Corregido: Al aplicar a producción, solo se inyecta el 
+ *     Stock de Bolas. El inventario por producto empieza a 0.
  * ============================================================
  */
 
@@ -987,6 +984,7 @@ function aplicarOrdenAProduccionUI() {
             datos.produccion[fechaUso] = { inventarioInicial: {}, horasTrabajadas: 0, pedidos: [] };
         }
 
+        // INYECTAR EL STOCK DE BOLAS
         const stockBolas = {};
         orden.lineas.forEach(l => {
             const tipo = l.tipoBola;
@@ -995,23 +993,9 @@ function aplicarOrdenAProduccionUI() {
         });
         datos.produccion[fechaUso].inventarioBolas = stockBolas;
 
-        const inv = {};
-        orden.lineas.forEach(l => {
-            const tipo = l.tipoBola;
-            if (!tipo) return;
-            const totalBolas = l.total || 0;
-            const productosDeEsteTipo = datos.productos.filter(p =>
-                p.tipoBola === tipo && p.activo !== false
-            );
-            if (productosDeEsteTipo.length === 0) return;
-            const porProducto = Math.floor(totalBolas / productosDeEsteTipo.length);
-            const resto = totalBolas - porProducto * productosDeEsteTipo.length;
-            productosDeEsteTipo.forEach((p, i) => {
-                const cant = porProducto + (i < resto ? 1 : 0);
-                if (cant > 0) inv[p.nombre] = (inv[p.nombre] || 0) + cant;
-            });
-        });
-        datos.produccion[fechaUso].inventarioInicial = inv;
+        // CORRECCIÓN: el inventario por producto empieza a 0. 
+        // Se irá llenando automáticamente a medida que entren pedidos.
+        datos.produccion[fechaUso].inventarioInicial = {};
         datos.produccion[fechaUso].inventarioDesdeAmasado = true;
 
         orden.aplicadoAProduccion = true;

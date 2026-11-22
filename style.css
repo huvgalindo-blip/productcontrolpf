@@ -1151,3 +1151,36 @@ table td .total-cell {
 .vista-error button {
     margin-top: 15px;
 }
+
+/* ================================================
+   FIX: Cabecera fija en la tabla de pedidos
+   ================================================ */
+
+/* Hacemos que SOLO el contenedor de la tabla de pedidos permita el scroll interno */
+.tabla-container:has(#tabla-pedidos) {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+/* Fijamos los encabezados (th) de la tabla */
+#tabla-pedidos thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--secondary); /* El color oscuro que ya tienes */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* Sombra para que se note el corte */
+}
+
+/* Fijamos la primera columna (el número #) para que no se pierda al hacer scroll a la derecha */
+#tabla-pedidos tbody td:first-child,
+#tabla-pedidos thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 11;
+    background-color: inherit;
+}
+
+/* Aseguramos que la primera columna del encabezado tenga el color oscuro correcto */
+#tabla-pedidos thead th:first-child {
+    background-color: var(--secondary);
+}

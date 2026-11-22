@@ -1,10 +1,9 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCCIÓN (v4.2 - Control Estricto + Fecha Fija + Resumen al final)
+ * MÓDULO: PRODUCCIÓN (v4.4 - Desglose de Cajas Exacto)
  * ============================================================
  */
 
-// Variable global para no perder la fecha al actualizar
 let fechaActualProduccion = null;
 
 function obtenerProduccionDia(datos, fecha) {
@@ -51,27 +50,6 @@ function calcularVentasDiarias(pedidos) {
         }
     });
     return ventas;
-}
-
-function calcularCosteMateriaPrima(datos, ventas) {
-    let total = 0;
-    Object.keys(ventas || {}).forEach(n => {
-        total += (parseFloat(ventas[n]) || 0) * obtenerPrecioCosto(datos, n);
-    });
-    return redondear2(total);
-}
-
-function calcularVentasGeneradas(datos, ventas) {
-    let total = 0;
-    Object.keys(ventas || {}).forEach(n => {
-        total += (parseFloat(ventas[n]) || 0) * obtenerPrecioVenta(datos, n);
-    });
-    return redondear2(total);
-}
-
-function calcularMargen(ventas, coste) {
-    if (ventas === 0) return 0;
-    return Math.round(((ventas - coste) / ventas) * 10000) / 100;
 }
 
 function calcularTotalPedido(productos) {
@@ -203,11 +181,9 @@ function renderizarProduccion(fechaParam) {
             const estadoBolas = calcularEstadoStockBolas(datos, fecha);
             const hayDeficit = estadoBolas.some(f => f.deficit);
 
-            const costeMP = calcularCosteMateriaPrima(datos, ventasDiarias);
-            const costeMOD = redondear2((produccion.horasTrabajadas || 0) * datos.configuracion.costeManoObraHora);
-            const ventasGen = calcularVentasGeneradas(datos, ventasDiarias);
-            const costeTotal = redondear2(costeMP + costeMOD);
-            const margen = calcularMargen(ventasGen, costeTotal);
+            const totalPedidos = produccion.pedidos.length;
+            const pedidosFinalizados = produccion.pedidos.filter(p => p.finalizado).length;
+            const unidadesProducidas = sumaValores(ventasDiarias);
 
             let html = `
                 <div class="vista active">
@@ -235,7 +211,7 @@ function renderizarProduccion(fechaParam) {
 
                     <div class="tabla-container">
                         <div class="flex-between mb-10">
-                            <span><strong>${productosActivos.length}</strong> productos activos | <strong id="contador-pedidos">${produccion.pedidos.length}</strong> pedidos</span>
+                            <span><strong>${productosActivos.length}</strong> productos activos</span>
                             <div>
                                 <button class="btn btn-primary btn-sm" onclick="añadirFilaPedido()">➕ Añadir fila</button>
                                 <button class="btn btn-secondary btn-sm" onclick="limpiarPedidosFinalizados()" style="margin-left: 5px;">🧹 Limpiar finalizados</button>
@@ -406,48 +382,59 @@ function renderizarProduccion(fechaParam) {
                     </div>
 
                     <!-- ============================================ -->
-                    <!-- RESUMEN DEL DÍA MOVIDO AL FINAL              -->
+                    <!-- NUEVO RESUMEN OPERATIVO (AL FINAL)           -->
                     <!-- ============================================ -->
                     <div class="vista-header" style="margin-top: 20px;">
-                        <h3>📊 Resumen del Día</h3>
+                        <h3>📊 Resumen de Producción</h3>
                     </div>
 
                     <div class="resumen-grid">
                         <div class="resumen-card">
-                            <div class="label">Horas Trabajadas</div>
-                            <input type="number" step="0.5" min="0"
-                                   style="width: 80px; text-align: center; margin: 5px auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;"
-                                   value="${produccion.horasTrabajadas || 0}"
-                                   onchange="guardarHorasTrabajadas(this.value)">
-                        </div>
-                        <div class="resumen-card">
-                            <div class="label">Coste Materia Prima</div>
-                            <div class="value primary" id="resumen-costeMP">${costeMP.toFixed(2)} €</div>
-                        </div>
-                        <div class="resumen-card">
-                            <div class="label">Coste Mano de Obra</div>
-                            <div class="value primary" id="resumen-costeMOD">${costeMOD.toFixed(2)} €</div>
-                        </div>
-                        <div class="resumen-card">
-                            <div class="label">Coste Total</div>
-                            <div class="value" id="resumen-costeTotal">${costeTotal.toFixed(2)} €</div>
-                        </div>
-                        <div class="resumen-card">
-                            <div class="label">Ventas Generadas</div>
-                            <div class="value success" id="resumen-ventas">${ventasGen.toFixed(2)} €</div>
-                        </div>
-                        <div class="resumen-card">
-                            <div class="label">Margen</div>
-                            <div class="value ${margen > 0 ? 'success' : 'danger'}" id="resumen-margen">${margen}%</div>
-                        </div>
-                        <div class="resumen-card">
                             <div class="label">Total Pedidos</div>
-                            <div class="value" id="resumen-pedidos">${produccion.pedidos.length}</div>
+                            <div class="value primary">${totalPedidos}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 5px;">
+                                (${pedidosFinalizados} finalizados)
+                            </div>
                         </div>
                         <div class="resumen-card">
-                            <div class="label">Unidades Producidas</div>
-                            <div class="value" id="resumen-unidades">${sumaValores(ventasDiarias)}</div>
+                            <div class="label">Unidades a Producir</div>
+                            <div class="value success">${unidadesProducidas} uds</div>
                         </div>
+                    </div>
+
+                    <div class="vista-header" style="margin-top: 15px;">
+                        <h4>📦 Desglose de Cajas</h4>
+                    </div>
+                    <div class="tabla-container">
+                        <table style="width: 100%; max-width: 600px;">
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    <th style="text-align: center;">Cajas Completas</th>
+                                    <th style="text-align: center;">Sueltas</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${productosConPedidos.map(nombre => {
+                                    const cant = ventasDiarias[nombre];
+                                    
+                                    // AQUÍ ESTÁ LA MAGIA: Leemos las uds por caja del producto real
+                                    const prodInfo = datos.productos.find(p => p.nombre === nombre);
+                                    const udsPorCaja = prodInfo?.unidadesPorCaja || 10; 
+
+                                    const cajas = Math.floor(cant / udsPorCaja);
+                                    const sueltas = cant % udsPorCaja;
+                                    return `
+                                        <tr>
+                                            <td><strong>${escaparHTML(nombre)}</strong> <small style="color:#999;">(${udsPorCaja} uds/caja)</small></td>
+                                            <td style="text-align: center; font-weight: bold;">${cajas}</td>
+                                            <td style="text-align: center; color: ${sueltas > 0 ? 'var(--warning)' : '#999'};">${sueltas}</td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                                ${productosConPedidos.length === 0 ? `<tr><td colspan="3" class="text-center" style="padding: 20px; color: #999;">No hay pedidos</td></tr>` : ''}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             `;
@@ -469,18 +456,9 @@ function renderizarProduccion(fechaParam) {
     }, 50);
 }
 
-// ============================================================
-// 4.1 ACTUALIZACIÓN (CONSERVANDO LA FECHA)
-// ============================================================
-
 function actualizarVistaSinReRender() {
-    // Al llamar a renderizarProduccion sin parámetros, usará fechaActualProduccion
     renderizarProduccion();
 }
-
-// ============================================================
-// 5. NAVEGACIÓN ENTRE DÍAS
-// ============================================================
 
 function cambiarFechaProduccion(fecha) {
     if (!fecha) return;
@@ -538,10 +516,6 @@ function irDiaAmasado() {
     renderizarProduccion(ordenObjetivo.fechaUso);
     mostrarNotificacion(`📅 Mostrando producción del ${formatearFechaLarga(ordenObjetivo.fechaUso)}`, 'info');
 }
-
-// ============================================================
-// 6. CRUD DE PEDIDOS
-// ============================================================
 
 function añadirFilaPedido() {
     const datos = cargarDatos();
@@ -661,10 +635,6 @@ function actualizarPedido(index) {
     guardarDatos(datos);
     actualizarVistaSinReRender(); 
 }
-
-// ============================================================
-// 7. ACTUALIZACIONES DE CAMPOS DEL DÍA
-// ============================================================
 
 function guardarHorasTrabajadas(valor) {
     const datos = cargarDatos();

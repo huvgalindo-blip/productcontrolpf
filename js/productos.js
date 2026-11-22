@@ -1,20 +1,8 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCTOS (v3)
- * ============================================================
- * Cambios v3:
- *   - Botón "➕ Crear nuevo tipo" junto al select de tipo de bola
- *   - Modal para crear tipos nuevos (nombre, peso, caja, bolas)
- *   - Los tipos se guardan en datos.tiposBola
- *   - Al crear un tipo nuevo, se selecciona automáticamente
- *
- * Dependencias: datos.js, utilidades.js
+ * MÓDULO: PRODUCTOS (v4 - Con Uds. por Caja)
  * ============================================================
  */
-
-// ============================================================
-// 1. ESTRUCTURA DE PRODUCTO
-// ============================================================
 
 function crearProductoVacio() {
     return {
@@ -24,6 +12,7 @@ function crearProductoVacio() {
         precioVenta: 0,
         activo: true,
         tipoBola: null,
+        unidadesPorCaja: 10, // <-- NUEVO: Valor por defecto
         pesoNeto: "",
         formato: "",
         ingredientesES: "",
@@ -43,10 +32,6 @@ function asegurarEstructuraProducto(producto) {
     return Object.assign({}, plantilla, producto);
 }
 
-// ============================================================
-// 2. CONSULTAS DE PRODUCTOS
-// ============================================================
-
 function obtenerProductosActivos(datos) {
     return datos.productos.filter(p => p.activo === true);
 }
@@ -65,166 +50,11 @@ function obtenerProductoPorNombre(datos, nombre) {
     return datos.productos.find(p => p.nombre === nombre && p.activo) || null;
 }
 
-/**
- * Devuelve la lista de nombres de tipos de bola desde datos.tiposBola.
- * Si no existe, devuelve array vacío.
- */
 function obtenerTiposBolaDisponibles() {
     const datos = cargarDatos();
     const tipos = datos.tiposBola || {};
     return Object.keys(tipos);
 }
-
-// ============================================================
-// 3. CREAR TIPO DE BOLA NUEVO (modal)
-// ============================================================
-
-/**
- * Abre un modal para crear un tipo de bola nuevo.
- * Al guardar, lo añade a datos.tiposBola y lo selecciona en el formulario.
- */
-function abrirModalNuevoTipoBola() {
-    // Crear el HTML del modal
-    const modalHTML = `
-        <div id="modal-tipo-bola" style="
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); z-index: 9999;
-            display: flex; align-items: center; justify-content: center;
-        ">
-            <div style="
-                background: white; padding: 25px; border-radius: 10px;
-                max-width: 500px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            ">
-                <h3 style="margin-bottom: 15px; color: var(--secondary);">➕ Crear nuevo tipo de bola</h3>
-
-                <div class="form-group">
-                    <label for="ntb-nombre">Nombre del tipo *</label>
-                    <input type="text" id="ntb-nombre" placeholder="Ej: Espelta Pequeña" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="form-group">
-                    <label for="ntb-peso">Peso por bola (g) *</label>
-                    <input type="number" id="ntb-peso" min="1" step="1" placeholder="Ej: 150" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="form-group">
-                    <label for="ntb-tipoCaja">Tipo de caja *</label>
-                    <select id="ntb-tipoCaja" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                        <option value="Pequeña">Pequeña</option>
-                        <option value="Mediana" selected>Mediana</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="ntb-maxCajas">Número máximo de cajas *</label>
-                    <input type="number" id="ntb-maxCajas" min="1" step="1" value="15" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="form-group">
-                    <label for="ntb-opcionesBolas">Opciones de bolas por caja * <small>(separadas por coma)</small></label>
-                    <input type="text" id="ntb-opcionesBolas" placeholder="Ej: 8, 10, 11" value="8" style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
-                </div>
-
-                <div class="flex gap-10" style="margin-top: 20px; justify-content: flex-end;">
-                    <button class="btn btn-secondary" onclick="cerrarModalNuevoTipoBola()">❌ Cancelar</button>
-                    <button class="btn btn-primary" onclick="guardarNuevoTipoBola()">💾 Crear tipo</button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    // Añadir el modal al body
-    const divExistente = document.getElementById('modal-tipo-bola');
-    if (divExistente) divExistente.remove();
-
-    const div = document.createElement('div');
-    div.innerHTML = modalHTML;
-    document.body.appendChild(div.firstElementChild);
-}
-
-/**
- * Cierra el modal de crear tipo de bola.
- */
-function cerrarModalNuevoTipoBola() {
-    const modal = document.getElementById('modal-tipo-bola');
-    if (modal) modal.remove();
-}
-
-/**
- * Guarda el tipo de bola nuevo en datos.tiposBola.
- * Valida los datos, añade el tipo, lo selecciona en el <select> del formulario.
- */
-function guardarNuevoTipoBola() {
-    const nombre = document.getElementById('ntb-nombre')?.value.trim() || '';
-    const peso = parseFloat(document.getElementById('ntb-peso')?.value) || 0;
-    const tipoCaja = document.getElementById('ntb-tipoCaja')?.value || 'Mediana';
-    const maxCajas = parseInt(document.getElementById('ntb-maxCajas')?.value) || 0;
-    const opcionesStr = document.getElementById('ntb-opcionesBolas')?.value || '';
-
-    // Validaciones
-    if (!nombre) {
-        mostrarNotificacion('❌ El nombre del tipo es obligatorio', 'error');
-        return;
-    }
-    if (peso <= 0) {
-        mostrarNotificacion('❌ El peso debe ser un número positivo', 'error');
-        return;
-    }
-    if (maxCajas < 1) {
-        mostrarNotificacion('❌ El número máximo de cajas debe ser mayor que 0', 'error');
-        return;
-    }
-
-    // Parsear opciones de bolas: "8, 10, 11" → [8, 10, 11]
-    const opciones = opcionesStr
-        .split(',')
-        .map(s => parseInt(s.trim()))
-        .filter(n => !isNaN(n) && n > 0);
-
-    if (opciones.length === 0) {
-        mostrarNotificacion('❌ Debe haber al menos una opción de bolas por caja', 'error');
-        return;
-    }
-
-    // Comprobar que no exista
-    const datos = cargarDatos();
-    if (!datos.tiposBola) datos.tiposBola = {};
-    if (datos.tiposBola[nombre]) {
-        mostrarNotificacion(`❌ Ya existe un tipo de bola llamado "${nombre}"`, 'error');
-        return;
-    }
-
-    // Crear el tipo
-    datos.tiposBola[nombre] = {
-        peso: peso,
-        configuraciones: [
-            { tipoCaja: tipoCaja, maxCajas: maxCajas, opcionesBolas: opciones }
-        ],
-        productosDestino: []
-    };
-
-    guardarDatos(datos);
-
-    // Cerrar modal
-    cerrarModalNuevoTipoBola();
-
-    // Actualizar el <select> del formulario de producto
-    const selectTipoBola = document.getElementById('producto-tipoBola');
-    if (selectTipoBola) {
-        const opt = document.createElement('option');
-        opt.value = nombre;
-        opt.textContent = nombre;
-        opt.selected = true;
-        selectTipoBola.appendChild(opt);
-        selectTipoBola.value = nombre;
-    }
-
-    mostrarNotificacion(`✅ Tipo "${nombre}" creado y seleccionado`, 'success');
-}
-
-// ============================================================
-// 4. RENDERIZADO DE LA VISTA PRODUCTOS
-// ============================================================
 
 function renderizarProductos() {
     const container = document.getElementById('vista-container');
@@ -270,13 +100,10 @@ function renderizarProductos() {
                     </div>
                     <div class="form-group">
                         <label for="producto-tipoBola">Tipo de bola *</label>
-                        <div style="display: flex; gap: 6px;">
-                            <select id="producto-tipoBola" required style="flex: 1;">
-                                <option value="">— Seleccionar tipo —</option>
-                                ${opcionesTipoBola}
-                            </select>
-                            <button type="button" class="btn btn-success btn-sm" onclick="abrirModalNuevoTipoBola()" title="Crear tipo de bola nuevo" style="background: #28a745; white-space: nowrap;">➕ Nuevo tipo</button>
-                        </div>
+                        <select id="producto-tipoBola" required>
+                            <option value="">— Seleccionar tipo —</option>
+                            ${opcionesTipoBola}
+                        </select>
                     </div>
                     <div class="form-group">
                         <label for="producto-precioCosto">Precio Coste (€)</label>
@@ -285,6 +112,10 @@ function renderizarProductos() {
                     <div class="form-group">
                         <label for="producto-precioVenta">Precio Venta (€)</label>
                         <input type="number" step="0.01" min="0" id="producto-precioVenta" placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="producto-unidadesPorCaja">Uds. por caja *</label>
+                        <input type="number" step="1" min="1" id="producto-unidadesPorCaja" placeholder="Ej: 10" required>
                     </div>
                 </div>
                 <input type="hidden" id="producto-editando-id">
@@ -301,6 +132,7 @@ function renderizarProductos() {
                             <th>ID</th>
                             <th>Nombre</th>
                             <th>Tipo Bola</th>
+                            <th>Uds/Caja</th>
                             <th>Precio Coste</th>
                             <th>Precio Venta</th>
                             <th>Margen</th>
@@ -314,7 +146,7 @@ function renderizarProductos() {
     if (datos.productos.length === 0) {
         html += `
             <tr>
-                <td colspan="8" class="text-center" style="padding: 30px; color: #999;">
+                <td colspan="9" class="text-center" style="padding: 30px; color: #999;">
                     No hay productos registrados
                 </td>
             </tr>
@@ -334,6 +166,7 @@ function renderizarProductos() {
                     <td>${producto.id}</td>
                     <td><strong>${escaparHTML(producto.nombre)}</strong></td>
                     <td>${tipoBolaHTML}</td>
+                    <td>${producto.unidadesPorCaja || 10} uds</td>
                     <td>${(producto.precioCosto || 0).toFixed(2)} €</td>
                     <td>${(producto.precioVenta || 0).toFixed(2)} €</td>
                     <td style="color: ${margen > 30 ? 'var(--success)' : margen > 15 ? 'var(--warning)' : 'var(--error)'}">
@@ -367,10 +200,6 @@ function renderizarProductos() {
     container.innerHTML = html;
 }
 
-// ============================================================
-// 5. FORMULARIO DE PRODUCTOS
-// ============================================================
-
 function mostrarFormularioProducto() {
     document.getElementById('form-producto-container').style.display = 'block';
     document.getElementById('form-producto-titulo').textContent = 'Añadir Producto';
@@ -378,6 +207,7 @@ function mostrarFormularioProducto() {
     document.getElementById('producto-tipoBola').value = '';
     document.getElementById('producto-precioCosto').value = '';
     document.getElementById('producto-precioVenta').value = '';
+    document.getElementById('producto-unidadesPorCaja').value = '10'; // Por defecto
     document.getElementById('producto-editando-id').value = '';
     document.getElementById('producto-nombre').focus();
 }
@@ -387,15 +217,12 @@ function cerrarFormularioProducto() {
     if (container) container.style.display = 'none';
 }
 
-// ============================================================
-// 6. CRUD DE PRODUCTOS
-// ============================================================
-
 function guardarProducto() {
     const nombre = document.getElementById('producto-nombre').value.trim();
     const tipoBola = document.getElementById('producto-tipoBola').value;
     const precioCosto = aDecimal(document.getElementById('producto-precioCosto').value);
     const precioVenta = aDecimal(document.getElementById('producto-precioVenta').value);
+    const unidadesPorCaja = parseInt(document.getElementById('producto-unidadesPorCaja').value) || 10;
     const editandoId = document.getElementById('producto-editando-id').value;
 
     if (!nombre) {
@@ -406,6 +233,11 @@ function guardarProducto() {
     if (!tipoBola) {
         mostrarNotificacion('❌ El tipo de bola es obligatorio', 'error');
         document.getElementById('producto-tipoBola').focus();
+        return;
+    }
+    if (unidadesPorCaja < 1) {
+        mostrarNotificacion('❌ Las unidades por caja deben ser mayor que 0', 'error');
+        document.getElementById('producto-unidadesPorCaja').focus();
         return;
     }
 
@@ -425,6 +257,7 @@ function guardarProducto() {
             producto.tipoBola = tipoBola;
             producto.precioCosto = precioCosto;
             producto.precioVenta = precioVenta;
+            producto.unidadesPorCaja = unidadesPorCaja;
             guardarDatos(datos);
             mostrarNotificacion('✅ Producto actualizado correctamente', 'success');
         }
@@ -440,6 +273,7 @@ function guardarProducto() {
             tipoBola,
             precioCosto,
             precioVenta,
+            unidadesPorCaja,
             activo: true
         });
         datos.productos.push(nuevoProducto);
@@ -465,6 +299,7 @@ function editarProducto(id) {
     document.getElementById('producto-tipoBola').value = producto.tipoBola || '';
     document.getElementById('producto-precioCosto').value = producto.precioCosto;
     document.getElementById('producto-precioVenta').value = producto.precioVenta;
+    document.getElementById('producto-unidadesPorCaja').value = producto.unidadesPorCaja || 10;
     document.getElementById('producto-editando-id').value = producto.id;
     document.getElementById('producto-nombre').focus();
 }
@@ -490,10 +325,7 @@ function reactivarProducto(id) {
     mostrarNotificacion(`✅ Producto "${producto.nombre}" reactivado`, 'success');
 }
 
-// ============================================================
-// 7. FICHA TÉCNICA
-// ============================================================
-
+// FICHA TÉCNICA (Se mantiene igual que antes)
 function editarFichaTecnicaProducto(id) {
     const datos = cargarDatos();
     const producto = datos.productos.find(p => p.id === id);

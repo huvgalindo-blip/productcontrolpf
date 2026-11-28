@@ -1,10 +1,12 @@
 /**
  * ============================================================
- * MÓDULO: PRODUCCIÓN (v4.4 - Desglose de Cajas Exacto)
+ * MÓDULO: PRODUCCIÓN (v4.5 - Categorías en Pedidos)
  * ============================================================
  */
 
 let fechaActualProduccion = null;
+
+// ... (El resto de funciones de cálculo se mantienen igual) ...
 
 function obtenerProduccionDia(datos, fecha) {
     if (!datos.produccion[fecha]) {
@@ -61,10 +63,6 @@ function calcularTotalPedido(productos) {
     }
     return total;
 }
-
-// ============================================================
-// 3.1 STOCK DE BOLAS
-// ============================================================
 
 function obtenerStockBolasInicial(datos, fecha) {
     const produccion = obtenerProduccionDia(datos, fecha);
@@ -140,10 +138,6 @@ function calcularEstadoStockBolas(datos, fecha) {
 
     return resultado;
 }
-
-// ============================================================
-// 4. RENDERIZADO COMPLETO
-// ============================================================
 
 function renderizarProduccion(fechaParam) {
     const container = document.getElementById('vista-container');
@@ -243,6 +237,19 @@ function renderizarProduccion(fechaParam) {
                 produccion.pedidos.forEach((pedido, index) => {
                     const totalPedido = calcularTotalPedido(pedido.productos);
                     const finalizado = pedido.finalizado || false;
+                    const clienteObj = datos.clientes.find(c => c.id === pedido.clienteId);
+                    
+                    let catColor = '#f5f5f5';
+                    let catTextColor = '#333';
+                    if (clienteObj) {
+                        if (clienteObj.categoria === 'Envío 24 horas') { catColor = '#E3F2FD'; catTextColor = '#1565C0'; }
+                        if (clienteObj.categoria === 'Envío refrigerado - congelado') { catColor = '#E0F7FA'; catTextColor = '#00695C'; }
+                        if (clienteObj.categoria === 'Distribución propia') { catColor = '#FFF3E0'; catTextColor = '#E65100'; }
+                    }
+
+                    const catHTML = clienteObj && clienteObj.categoria 
+                        ? `<div style="font-size: 0.7rem; margin-top: 4px;"><span style="background: ${catColor}; color: ${catTextColor}; padding: 2px 6px; border-radius: 4px; white-space: nowrap;">${escaparHTML(clienteObj.categoria)}</span></div>` 
+                        : '';
 
                     html += `
                         <tr class="${finalizado ? 'finalizado' : ''}" data-fila-index="${index}">
@@ -256,6 +263,7 @@ function renderizarProduccion(fechaParam) {
                                         </option>
                                     `).join('')}
                                 </select>
+                                ${catHTML}
                             </td>
                             ${productosActivos.map(p => `
                                 <td>
@@ -381,9 +389,6 @@ function renderizarProduccion(fechaParam) {
                         </table>
                     </div>
 
-                    <!-- ============================================ -->
-                    <!-- NUEVO RESUMEN OPERATIVO (AL FINAL)           -->
-                    <!-- ============================================ -->
                     <div class="vista-header" style="margin-top: 20px;">
                         <h3>📊 Resumen de Producción</h3>
                     </div>
@@ -418,7 +423,6 @@ function renderizarProduccion(fechaParam) {
                                 ${productosConPedidos.map(nombre => {
                                     const cant = ventasDiarias[nombre];
                                     
-                                    // AQUÍ ESTÁ LA MAGIA: Leemos las uds por caja del producto real
                                     const prodInfo = datos.productos.find(p => p.nombre === nombre);
                                     const udsPorCaja = prodInfo?.unidadesPorCaja || 10; 
 
@@ -455,6 +459,8 @@ function renderizarProduccion(fechaParam) {
         }
     }, 50);
 }
+
+// ... (El resto de funciones: actualizarVistaSinReRender, cambiarFechaProduccion, etc., se mantienen exactamente igual) ...
 
 function actualizarVistaSinReRender() {
     renderizarProduccion();

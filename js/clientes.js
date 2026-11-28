@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * MÓDULO: CLIENTES (v3 - Categorías)
+ * MÓDULO: CLIENTES (v4 - Categorías Editables y Filtros)
  * ============================================================
  */
 
@@ -9,7 +9,7 @@ function crearClienteVacio() {
         id: 0,
         codigo: "",
         nombre: "",
-        categoria: "Envío 24 horas", // <-- NUEVO: Categoría por defecto
+        categoria: "Envío 24 horas", // <-- Categoría por defecto
         activo: true,
         razonSocial: "",
         cif: "",
@@ -67,7 +67,9 @@ function buscarClientes(datos, texto) {
     });
 }
 
+// Variables para los filtros
 let filtroBusquedaClientes = '';
+let filtroCategoriaClientes = '';
 
 function renderizarClientes() {
     const container = document.getElementById('vista-container');
@@ -75,9 +77,15 @@ function renderizarClientes() {
     
     datos.clientes = datos.clientes.map(asegurarEstructuraCliente);
     
-    const clientesAMostrar = filtroBusquedaClientes
+    // 1. Aplicar filtro de búsqueda de texto
+    let clientesFiltrados = filtroBusquedaClientes
         ? buscarClientes(datos, filtroBusquedaClientes)
         : datos.clientes;
+
+    // 2. Aplicar filtro de categoría
+    if (filtroCategoriaClientes) {
+        clientesFiltrados = clientesFiltrados.filter(c => c.categoria === filtroCategoriaClientes);
+    }
     
     const activos = datos.clientes.filter(c => c.activo).length;
 
@@ -88,7 +96,7 @@ function renderizarClientes() {
                     <h2>👥 Clientes</h2>
                     <span class="subtitle">
                         ${activos} activos de ${datos.clientes.length} totales
-                        ${filtroBusquedaClientes ? ` — Mostrando ${clientesAMostrar.length} resultados` : ''}
+                        ${(filtroBusquedaClientes || filtroCategoriaClientes) ? ` — Mostrando ${clientesFiltrados.length} resultados` : ''}
                     </span>
                 </div>
                 <div class="flex gap-10">
@@ -97,17 +105,28 @@ function renderizarClientes() {
                 </div>
             </div>
             
-            <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px;">
+            <!-- BARRA DE FILTROS Y BÚSQUEDA -->
+            <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                 <input 
                     type="text" 
                     id="buscador-clientes" 
-                    placeholder="🔍 Buscar por nombre, código, categoría, CIF, población o email..." 
+                    placeholder="🔍 Buscar por nombre, código, CIF, población..." 
                     value="${escaparHTML(filtroBusquedaClientes)}"
                     oninput="filtrarClientes(this.value)"
-                    style="width: 100%; padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.95rem;"
+                    style="flex: 1; min-width: 250px; padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.95rem;"
                 >
+                <select 
+                    onchange="filtrarCategoriaClientes(this.value)"
+                    style="padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.95rem; background: white; min-width: 200px;"
+                >
+                    <option value="">Todas las categorías</option>
+                    <option value="Envío 24 horas" ${filtroCategoriaClientes === 'Envío 24 horas' ? 'selected' : ''}>Envío 24 horas</option>
+                    <option value="Envío refrigerado - congelado" ${filtroCategoriaClientes === 'Envío refrigerado - congelado' ? 'selected' : ''}>Envío refrigerado - congelado</option>
+                    <option value="Distribución propia" ${filtroCategoriaClientes === 'Distribución propia' ? 'selected' : ''}>Distribución propia</option>
+                </select>
             </div>
             
+            <!-- FORMULARIO (Oculto por defecto) -->
             <div id="form-cliente-container" style="display: none; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
                 <h3 id="form-cliente-titulo">Añadir Cliente</h3>
                 
@@ -217,16 +236,15 @@ function renderizarClientes() {
                 </div>
             </div>
             
+            <!-- TABLA DE CLIENTES -->
             <div class="tabla-container">
                 <table>
                     <thead>
                         <tr>
-                            <th>ID</th>
                             <th>Código</th>
                             <th>Nombre</th>
-                            <th>Categoría</th>
+                            <th>Categoría (Editable)</th>
                             <th>Población</th>
-                            <th>Teléfono</th>
                             <th>Estado</th>
                             <th>Acciones</th>
                         </tr>
@@ -234,40 +252,42 @@ function renderizarClientes() {
                     <tbody>
     `;
 
-    if (clientesAMostrar.length === 0) {
-        const mensaje = filtroBusquedaClientes
+    if (clientesFiltrados.length === 0) {
+        const mensaje = (filtroBusquedaClientes || filtroCategoriaClientes)
             ? 'No se encontraron clientes con ese criterio'
             : 'No hay clientes registrados';
         html += `
             <tr>
-                <td colspan="8" class="text-center" style="padding: 30px; color: #999;">
+                <td colspan="6" class="text-center" style="padding: 30px; color: #999;">
                     ${mensaje}
                 </td>
             </tr>
         `;
     } else {
-        clientesAMostrar.forEach(cliente => {
-            let catColor = '#f5f5f5';
-            let catTextColor = '#333';
-            if (cliente.categoria === 'Envío 24 horas') { catColor = '#E3F2FD'; catTextColor = '#1565C0'; }
-            if (cliente.categoria === 'Envío refrigerado - congelado') { catColor = '#E0F7FA'; catTextColor = '#00695C'; }
-            if (cliente.categoria === 'Distribución propia') { catColor = '#FFF3E0'; catTextColor = '#E65100'; }
-
+        clientesFiltrados.forEach(cliente => {
             html += `
                 <tr>
-                    <td>${cliente.id}</td>
                     <td><strong>${escaparHTML(cliente.codigo)}</strong></td>
                     <td>${escaparHTML(cliente.nombre)}</td>
-                    <td><span style="background: ${catColor}; color: ${catTextColor}; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; white-space: nowrap;">${escaparHTML(cliente.categoria || 'Envío 24 horas')}</span></td>
+                    <td>
+                        <!-- SELECTOR RÁPIDO DE CATEGORÍA -->
+                        <select 
+                            onchange="cambiarCategoriaRapida(${cliente.id}, this.value)"
+                            style="padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color); font-size: 0.8rem; background: ${getBgColorCat(cliente.categoria)}; color: ${getTextColorCat(cliente.categoria)}; font-weight: 600; max-width: 180px; cursor: pointer;"
+                        >
+                            <option value="Envío 24 horas" ${cliente.categoria === 'Envío 24 horas' ? 'selected' : ''}>Envío 24h</option>
+                            <option value="Envío refrigerado - congelado" ${cliente.categoria === 'Envío refrigerado - congelado' ? 'selected' : ''}>Refrig/Congelado</option>
+                            <option value="Distribución propia" ${cliente.categoria === 'Distribución propia' ? 'selected' : ''}>Distribución propia</option>
+                        </select>
+                    </td>
                     <td>${escaparHTML(cliente.poblacion) || '<span style="color:#ccc;">—</span>'}</td>
-                    <td>${escaparHTML(cliente.telefono || cliente.movil) || '<span style="color:#ccc;">—</span>'}</td>
                     <td>
                         <span style="color: ${cliente.activo ? 'var(--success)' : 'var(--error)'}">
                             ${cliente.activo ? '✅ Activo' : '❌ Inactivo'}
                         </span>
                     </td>
                     <td>
-                        <button class="btn btn-secondary btn-sm" onclick="editarCliente(${cliente.id})" title="Editar">✏️</button>
+                        <button class="btn btn-secondary btn-sm" onclick="editarCliente(${cliente.id})" title="Editar datos completos">✏️</button>
                         ${cliente.activo
                             ? `<button class="btn btn-danger btn-sm" onclick="eliminarCliente(${cliente.id})" title="Desactivar">🗑️</button>`
                             : `<button class="btn btn-success btn-sm" onclick="reactivarCliente(${cliente.id})" title="Reactivar">↩️</button>`
@@ -288,6 +308,32 @@ function renderizarClientes() {
     container.innerHTML = html;
 }
 
+// Funciones auxiliares para los colores de las etiquetas
+function getBgColorCat(cat) {
+    if (cat === 'Envío 24 horas') return '#E3F2FD';
+    if (cat === 'Envío refrigerado - congelado') return '#E0F7FA';
+    if (cat === 'Distribución propia') return '#FFF3E0';
+    return '#f5f5f5';
+}
+function getTextColorCat(cat) {
+    if (cat === 'Envío 24 horas') return '#1565C0';
+    if (cat === 'Envío refrigerado - congelado') return '#00695C';
+    if (cat === 'Distribución propia') return '#E65100';
+    return '#333';
+}
+
+function cambiarCategoriaRapida(id, nuevaCategoria) {
+    const datos = cargarDatos();
+    const cliente = datos.clientes.find(c => c.id === id);
+    if (cliente) {
+        cliente.categoria = nuevaCategoria;
+        cliente.ultimaModificacion = new Date().toISOString();
+        guardarDatos(datos);
+        mostrarNotificacion(`✅ ${cliente.nombre} asignado a "${nuevaCategoria}"`, 'success');
+        renderizarClientes(); // Refresca para actualizar el color y el filtro
+    }
+}
+
 function filtrarClientes(texto) {
     filtroBusquedaClientes = texto;
     renderizarClientes();
@@ -296,6 +342,11 @@ function filtrarClientes(texto) {
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
     }
+}
+
+function filtrarCategoriaClientes(categoria) {
+    filtroCategoriaClientes = categoria;
+    renderizarClientes();
 }
 
 function mostrarFormularioCliente() {
@@ -316,7 +367,6 @@ function mostrarFormularioCliente() {
         if (el) el.value = '';
     });
     
-    // Categoría por defecto
     document.getElementById('cliente-categoria').value = 'Envío 24 horas';
     document.getElementById('cliente-editando-id').value = '';
     

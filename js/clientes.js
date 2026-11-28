@@ -1,37 +1,16 @@
 /**
  * ============================================================
- * MÓDULO: CLIENTES
- * ============================================================
- * Responsabilidades:
- *   - Consultas de clientes (activos, búsqueda, filtros)
- *   - CRUD de clientes (crear, editar, activar, desactivar)
- *   - Renderizado de la vista de Clientes con búsqueda
- * 
- * Estructura de cliente (preparada para BD real):
- *   - Datos básicos: id, codigo, nombre, activo
- *   - Datos ampliados: razonSocial, cif, direccion, poblacion, etc.
- * 
- * Dependencias: datos.js, utilidades.js
+ * MÓDULO: CLIENTES (v3 - Categorías)
  * ============================================================
  */
 
-// ============================================================
-// 1. ESTRUCTURA DE CLIENTE (PLANTILLA)
-// ============================================================
-
-/**
- * Devuelve un cliente nuevo con todos los campos rellenos.
- * Sirve de plantilla para evitar clientes con campos undefined.
- */
 function crearClienteVacio() {
     return {
-        // --- Datos básicos ---
         id: 0,
         codigo: "",
         nombre: "",
+        categoria: "Envío 24 horas", // <-- NUEVO: Categoría por defecto
         activo: true,
-        
-        // --- Datos ampliados (BD real PrestaShop) ---
         razonSocial: "",
         cif: "",
         direccion: "",
@@ -51,52 +30,23 @@ function crearClienteVacio() {
     };
 }
 
-/**
- * Asegura que un cliente tenga todos los campos de la plantilla.
- * Si le falta alguno, lo rellena con el valor por defecto.
- * Uso: al cargar datos antiguos que no tengan los campos nuevos.
- * 
- * @param {object} cliente - Cliente a normalizar
- * @returns {object} Cliente con todos los campos garantizados
- */
 function asegurarEstructuraCliente(cliente) {
     const plantilla = crearClienteVacio();
     return Object.assign({}, plantilla, cliente);
 }
 
-// ============================================================
-// 2. CONSULTAS DE CLIENTES
-// ============================================================
-
-/**
- * Devuelve solo los clientes activos.
- */
 function obtenerClientesActivos(datos) {
     return datos.clientes.filter(c => c.activo === true);
 }
 
-/**
- * Busca un cliente por su ID.
- */
 function obtenerClientePorId(datos, id) {
     return datos.clientes.find(c => c.id === id) || null;
 }
 
-/**
- * Busca un cliente por su código exacto (ej: "5.0").
- */
 function obtenerClientePorCodigo(datos, codigo) {
     return datos.clientes.find(c => c.codigo === codigo) || null;
 }
 
-/**
- * Busca clientes por texto libre (nombre, código, CIF o población).
- * Devuelve un array filtrado.
- * 
- * @param {object} datos - Datos de la app
- * @param {string} texto - Texto a buscar
- * @returns {array} Clientes que coinciden
- */
 function buscarClientes(datos, texto) {
     if (!texto || texto.trim() === '') return datos.clientes;
     
@@ -105,6 +55,7 @@ function buscarClientes(datos, texto) {
         const campos = [
             c.codigo,
             c.nombre,
+            c.categoria,
             c.razonSocial,
             c.cif,
             c.poblacion,
@@ -116,24 +67,14 @@ function buscarClientes(datos, texto) {
     });
 }
 
-// ============================================================
-// 3. RENDERIZADO DE LA VISTA CLIENTES
-// ============================================================
-
-// Estado local del buscador (no persiste, solo memoria)
 let filtroBusquedaClientes = '';
 
-/**
- * Renderiza la vista completa de clientes en #vista-container.
- */
 function renderizarClientes() {
     const container = document.getElementById('vista-container');
     const datos = cargarDatos();
     
-    // Normalizar clientes (por si vienen de una versión antigua)
     datos.clientes = datos.clientes.map(asegurarEstructuraCliente);
     
-    // Aplicar filtro de búsqueda
     const clientesAMostrar = filtroBusquedaClientes
         ? buscarClientes(datos, filtroBusquedaClientes)
         : datos.clientes;
@@ -156,23 +97,20 @@ function renderizarClientes() {
                 </div>
             </div>
             
-            <!-- Buscador -->
             <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px;">
                 <input 
                     type="text" 
                     id="buscador-clientes" 
-                    placeholder="🔍 Buscar por nombre, código, CIF, población o email..." 
+                    placeholder="🔍 Buscar por nombre, código, categoría, CIF, población o email..." 
                     value="${escaparHTML(filtroBusquedaClientes)}"
                     oninput="filtrarClientes(this.value)"
                     style="width: 100%; padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.95rem;"
                 >
             </div>
             
-            <!-- Formulario (oculto por defecto) -->
             <div id="form-cliente-container" style="display: none; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
                 <h3 id="form-cliente-titulo">Añadir Cliente</h3>
                 
-                <!-- Datos básicos -->
                 <div class="form-row">
                     <div class="form-group">
                         <label for="cliente-codigo">Código *</label>
@@ -182,9 +120,16 @@ function renderizarClientes() {
                         <label for="cliente-nombre">Nombre *</label>
                         <input type="text" id="cliente-nombre" placeholder="Nombre del cliente" required>
                     </div>
+                    <div class="form-group">
+                        <label for="cliente-categoria">Categoría de Envío *</label>
+                        <select id="cliente-categoria">
+                            <option value="Envío 24 horas">Envío 24 horas</option>
+                            <option value="Envío refrigerado - congelado">Envío refrigerado - congelado</option>
+                            <option value="Distribución propia">Distribución propia</option>
+                        </select>
+                    </div>
                 </div>
                 
-                <!-- Datos adicionales (desplegable) -->
                 <details style="margin: 15px 0; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 15px;">
                     <summary style="cursor: pointer; font-weight: 600; color: var(--secondary);">
                         📋 Datos adicionales (opcional)
@@ -272,7 +217,6 @@ function renderizarClientes() {
                 </div>
             </div>
             
-            <!-- Tabla de clientes -->
             <div class="tabla-container">
                 <table>
                     <thead>
@@ -280,6 +224,7 @@ function renderizarClientes() {
                             <th>ID</th>
                             <th>Código</th>
                             <th>Nombre</th>
+                            <th>Categoría</th>
                             <th>Población</th>
                             <th>Teléfono</th>
                             <th>Estado</th>
@@ -295,18 +240,25 @@ function renderizarClientes() {
             : 'No hay clientes registrados';
         html += `
             <tr>
-                <td colspan="7" class="text-center" style="padding: 30px; color: #999;">
+                <td colspan="8" class="text-center" style="padding: 30px; color: #999;">
                     ${mensaje}
                 </td>
             </tr>
         `;
     } else {
         clientesAMostrar.forEach(cliente => {
+            let catColor = '#f5f5f5';
+            let catTextColor = '#333';
+            if (cliente.categoria === 'Envío 24 horas') { catColor = '#E3F2FD'; catTextColor = '#1565C0'; }
+            if (cliente.categoria === 'Envío refrigerado - congelado') { catColor = '#E0F7FA'; catTextColor = '#00695C'; }
+            if (cliente.categoria === 'Distribución propia') { catColor = '#FFF3E0'; catTextColor = '#E65100'; }
+
             html += `
                 <tr>
                     <td>${cliente.id}</td>
                     <td><strong>${escaparHTML(cliente.codigo)}</strong></td>
                     <td>${escaparHTML(cliente.nombre)}</td>
+                    <td><span style="background: ${catColor}; color: ${catTextColor}; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; white-space: nowrap;">${escaparHTML(cliente.categoria || 'Envío 24 horas')}</span></td>
                     <td>${escaparHTML(cliente.poblacion) || '<span style="color:#ccc;">—</span>'}</td>
                     <td>${escaparHTML(cliente.telefono || cliente.movil) || '<span style="color:#ccc;">—</span>'}</td>
                     <td>
@@ -336,27 +288,15 @@ function renderizarClientes() {
     container.innerHTML = html;
 }
 
-// ============================================================
-// 4. BUSCADOR
-// ============================================================
-
-/**
- * Aplica el filtro de búsqueda y re-renderiza.
- */
 function filtrarClientes(texto) {
     filtroBusquedaClientes = texto;
     renderizarClientes();
-    // Restaurar foco en el buscador tras el re-render
     const input = document.getElementById('buscador-clientes');
     if (input) {
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
     }
 }
-
-// ============================================================
-// 5. FORMULARIO DE CLIENTES
-// ============================================================
 
 function mostrarFormularioCliente() {
     const container = document.getElementById('form-cliente-container');
@@ -365,7 +305,6 @@ function mostrarFormularioCliente() {
     container.style.display = 'block';
     document.getElementById('form-cliente-titulo').textContent = 'Añadir Cliente';
     
-    // Limpiar todos los campos
     const campos = [
         'codigo', 'nombre', 'razonSocial', 'cif', 'direccion',
         'poblacion', 'codigoPostal', 'provincia', 'telefono', 'movil',
@@ -376,9 +315,11 @@ function mostrarFormularioCliente() {
         const el = document.getElementById(`cliente-${campo}`);
         if (el) el.value = '';
     });
+    
+    // Categoría por defecto
+    document.getElementById('cliente-categoria').value = 'Envío 24 horas';
     document.getElementById('cliente-editando-id').value = '';
     
-    // Scroll al formulario y foco
     container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     document.getElementById('cliente-codigo').focus();
 }
@@ -388,9 +329,6 @@ function cerrarFormularioCliente() {
     if (container) container.style.display = 'none';
 }
 
-/**
- * Rellena el formulario con los datos de un cliente para editarlo.
- */
 function editarCliente(id) {
     const datos = cargarDatos();
     const cliente = asegurarEstructuraCliente(
@@ -404,7 +342,6 @@ function editarCliente(id) {
     document.getElementById('form-cliente-container').style.display = 'block';
     document.getElementById('form-cliente-titulo').textContent = 'Editar Cliente';
     
-    // Rellenar todos los campos
     const campos = [
         'codigo', 'nombre', 'razonSocial', 'cif', 'direccion',
         'poblacion', 'codigoPostal', 'provincia', 'telefono', 'movil',
@@ -415,9 +352,10 @@ function editarCliente(id) {
         const el = document.getElementById(`cliente-${campo}`);
         if (el) el.value = cliente[campo] || '';
     });
+    
+    document.getElementById('cliente-categoria').value = cliente.categoria || 'Envío 24 horas';
     document.getElementById('cliente-editando-id').value = cliente.id;
     
-    // Abrir el desplegable de datos adicionales automáticamente si hay datos
     const tieneDatosExtra = cliente.razonSocial || cliente.cif || cliente.direccion || 
                             cliente.poblacion || cliente.telefono || cliente.email;
     if (tieneDatosExtra) {
@@ -429,16 +367,10 @@ function editarCliente(id) {
     document.getElementById('cliente-codigo').focus();
 }
 
-// ============================================================
-// 6. CRUD DE CLIENTES
-// ============================================================
-
-/**
- * Guarda (crea o actualiza) un cliente con todos sus campos.
- */
 function guardarCliente() {
     const codigo = document.getElementById('cliente-codigo').value.trim();
     const nombre = document.getElementById('cliente-nombre').value.trim();
+    const categoria = document.getElementById('cliente-categoria').value;
     const editandoId = document.getElementById('cliente-editando-id').value;
 
     if (!codigo) {
@@ -454,7 +386,6 @@ function guardarCliente() {
 
     const datos = cargarDatos();
 
-    // Recoger todos los campos ampliados
     const camposExtra = {
         razonSocial: document.getElementById('cliente-razonSocial')?.value.trim() || '',
         cif: document.getElementById('cliente-cif')?.value.trim() || '',
@@ -473,7 +404,6 @@ function guardarCliente() {
     };
 
     if (editandoId) {
-        // ---- Editar cliente existente ----
         const cliente = datos.clientes.find(c => c.id === parseInt(editandoId));
         if (cliente) {
             const duplicado = datos.clientes.find(
@@ -486,13 +416,13 @@ function guardarCliente() {
             }
             cliente.codigo = codigo;
             cliente.nombre = nombre;
+            cliente.categoria = categoria;
             Object.assign(cliente, camposExtra);
             cliente.ultimaModificacion = new Date().toISOString();
             guardarDatos(datos);
             mostrarNotificacion('✅ Cliente actualizado correctamente', 'success');
         }
     } else {
-        // ---- Crear nuevo cliente ----
         const duplicado = datos.clientes.find(c => c.codigo === codigo);
         if (duplicado) {
             mostrarNotificacion('❌ El código ya está en uso', 'error');
@@ -505,6 +435,7 @@ function guardarCliente() {
                 id: generarId(datos.clientes),
                 codigo,
                 nombre,
+                categoria,
                 activo: true,
                 fechaAlta: new Date().toISOString()
             },
@@ -519,16 +450,11 @@ function guardarCliente() {
     renderizarClientes();
 }
 
-/**
- * Desactiva un cliente (no lo borra).
- */
 function eliminarCliente(id) {
     const datos = cargarDatos();
     const cliente = datos.clientes.find(c => c.id === id);
     if (!cliente) return;
-
     if (!confirm(`⚠️ ¿Desactivar el cliente "${cliente.nombre}"?`)) return;
-
     cliente.activo = false;
     cliente.ultimaModificacion = new Date().toISOString();
     guardarDatos(datos);
@@ -536,14 +462,10 @@ function eliminarCliente(id) {
     mostrarNotificacion(`✅ Cliente "${cliente.nombre}" desactivado`, 'success');
 }
 
-/**
- * Reactiva un cliente desactivado.
- */
 function reactivarCliente(id) {
     const datos = cargarDatos();
     const cliente = datos.clientes.find(c => c.id === id);
     if (!cliente) return;
-
     cliente.activo = true;
     cliente.ultimaModificacion = new Date().toISOString();
     guardarDatos(datos);
@@ -551,16 +473,6 @@ function reactivarCliente(id) {
     mostrarNotificacion(`✅ Cliente "${cliente.nombre}" reactivado`, 'success');
 }
 
-// ============================================================
-// 7. IMPORTACIÓN CSV (PLACEHOLDER - se implementará en fase 2)
-// ============================================================
-
-/**
- * Placeholder para la futura importación masiva desde CSV de PrestaShop.
- * Se activará cuando tengas el CSV exportado.
- */
 function prepararImportacionCSV() {
     mostrarNotificacion('ℹ️ La importación CSV estará disponible próximamente', 'info');
-    console.log('📥 Función prepararImportacionCSV() pendiente de implementar');
-    console.log('   Cuando tengas el CSV de PrestaShop, se activará esta función');
 }

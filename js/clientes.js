@@ -1,6 +1,6 @@
 /**
  * ============================================================
- * MÓDULO: CLIENTES (v4 - Categorías Editables y Filtros)
+ * MÓDULO: CLIENTES (v5 - Categorías + Paginación)
  * ============================================================
  */
 
@@ -9,7 +9,7 @@ function crearClienteVacio() {
         id: 0,
         codigo: "",
         nombre: "",
-        categoria: "Envío 24 horas", // <-- Categoría por defecto
+        categoria: "Envío 24 horas",
         activo: true,
         razonSocial: "",
         cif: "",
@@ -67,9 +67,11 @@ function buscarClientes(datos, texto) {
     });
 }
 
-// Variables para los filtros
+// --- Variables de Estado para Filtros y Paginación ---
 let filtroBusquedaClientes = '';
 let filtroCategoriaClientes = '';
+let paginaActualClientes = 1;
+let clientesPorPagina = 200; // Por defecto 200
 
 function renderizarClientes() {
     const container = document.getElementById('vista-container');
@@ -87,7 +89,22 @@ function renderizarClientes() {
         clientesFiltrados = clientesFiltrados.filter(c => c.categoria === filtroCategoriaClientes);
     }
     
+    const totalFiltrados = clientesFiltrados.length;
     const activos = datos.clientes.filter(c => c.activo).length;
+
+    // 3. Calcular paginación
+    let totalPaginas = 1;
+    let clientesEnPagina = clientesFiltrados;
+
+    if (clientesPorPagina !== 'todos') {
+        totalPaginas = Math.ceil(totalFiltrados / clientesPorPagina);
+        if (paginaActualClientes > totalPaginas) paginaActualClientes = totalPaginas;
+        if (paginaActualClientes < 1) paginaActualClientes = 1;
+        
+        const inicio = (paginaActualClientes - 1) * clientesPorPagina;
+        const fin = inicio + clientesPorPagina;
+        clientesEnPagina = clientesFiltrados.slice(inicio, fin);
+    }
 
     let html = `
         <div class="vista active">
@@ -96,7 +113,7 @@ function renderizarClientes() {
                     <h2>👥 Clientes</h2>
                     <span class="subtitle">
                         ${activos} activos de ${datos.clientes.length} totales
-                        ${(filtroBusquedaClientes || filtroCategoriaClientes) ? ` — Mostrando ${clientesFiltrados.length} resultados` : ''}
+                        ${(filtroBusquedaClientes || filtroCategoriaClientes) ? ` — Mostrando ${totalFiltrados} resultados` : ''}
                     </span>
                 </div>
                 <div class="flex gap-10">
@@ -105,12 +122,12 @@ function renderizarClientes() {
                 </div>
             </div>
             
-            <!-- BARRA DE FILTROS Y BÚSQUEDA -->
-            <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <!-- BARRA DE FILTROS -->
+            <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
                 <input 
                     type="text" 
                     id="buscador-clientes" 
-                    placeholder="🔍 Buscar por nombre, código, CIF, población..." 
+                    placeholder="🔍 Buscar por nombre, código, CIF..." 
                     value="${escaparHTML(filtroBusquedaClientes)}"
                     oninput="filtrarClientes(this.value)"
                     style="flex: 1; min-width: 250px; padding: 10px 15px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.95rem;"
@@ -124,9 +141,22 @@ function renderizarClientes() {
                     <option value="Envío refrigerado - congelado" ${filtroCategoriaClientes === 'Envío refrigerado - congelado' ? 'selected' : ''}>Envío refrigerado - congelado</option>
                     <option value="Distribución propia" ${filtroCategoriaClientes === 'Distribución propia' ? 'selected' : ''}>Distribución propia</option>
                 </select>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.9rem; color: #666;">Ver:</span>
+                    <select 
+                        onchange="cambiarClientesPorPagina(this.value)"
+                        style="padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.95rem; background: white;"
+                    >
+                        <option value="50" ${clientesPorPagina == 50 ? 'selected' : ''}>50</option>
+                        <option value="100" ${clientesPorPagina == 100 ? 'selected' : ''}>100</option>
+                        <option value="200" ${clientesPorPagina == 200 ? 'selected' : ''}>200</option>
+                        <option value="500" ${clientesPorPagina == 500 ? 'selected' : ''}>500</option>
+                        <option value="todos" ${clientesPorPagina === 'todos' ? 'selected' : ''}>Todos</option>
+                    </select>
+                </div>
             </div>
             
-            <!-- FORMULARIO (Oculto por defecto) -->
+            <!-- FORMULARIO -->
             <div id="form-cliente-container" style="display: none; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;">
                 <h3 id="form-cliente-titulo">Añadir Cliente</h3>
                 
@@ -236,7 +266,7 @@ function renderizarClientes() {
                 </div>
             </div>
             
-            <!-- TABLA DE CLIENTES -->
+            <!-- TABLA -->
             <div class="tabla-container">
                 <table>
                     <thead>
@@ -252,25 +282,21 @@ function renderizarClientes() {
                     <tbody>
     `;
 
-    if (clientesFiltrados.length === 0) {
-        const mensaje = (filtroBusquedaClientes || filtroCategoriaClientes)
-            ? 'No se encontraron clientes con ese criterio'
-            : 'No hay clientes registrados';
+    if (clientesEnPagina.length === 0) {
         html += `
             <tr>
                 <td colspan="6" class="text-center" style="padding: 30px; color: #999;">
-                    ${mensaje}
+                    No se encontraron clientes con ese criterio
                 </td>
             </tr>
         `;
     } else {
-        clientesFiltrados.forEach(cliente => {
+        clientesEnPagina.forEach(cliente => {
             html += `
                 <tr>
                     <td><strong>${escaparHTML(cliente.codigo)}</strong></td>
                     <td>${escaparHTML(cliente.nombre)}</td>
                     <td>
-                        <!-- SELECTOR RÁPIDO DE CATEGORÍA -->
                         <select 
                             onchange="cambiarCategoriaRapida(${cliente.id}, this.value)"
                             style="padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color); font-size: 0.8rem; background: ${getBgColorCat(cliente.categoria)}; color: ${getTextColorCat(cliente.categoria)}; font-weight: 600; max-width: 180px; cursor: pointer;"
@@ -287,7 +313,7 @@ function renderizarClientes() {
                         </span>
                     </td>
                     <td>
-                        <button class="btn btn-secondary btn-sm" onclick="editarCliente(${cliente.id})" title="Editar datos completos">✏️</button>
+                        <button class="btn btn-secondary btn-sm" onclick="editarCliente(${cliente.id})" title="Editar">✏️</button>
                         ${cliente.activo
                             ? `<button class="btn btn-danger btn-sm" onclick="eliminarCliente(${cliente.id})" title="Desactivar">🗑️</button>`
                             : `<button class="btn btn-success btn-sm" onclick="reactivarCliente(${cliente.id})" title="Reactivar">↩️</button>`
@@ -302,6 +328,20 @@ function renderizarClientes() {
                     </tbody>
                 </table>
             </div>
+            
+            <!-- CONTROLES DE PAGINACIÓN (Solo si no es "Todos") -->
+            ${clientesPorPagina !== 'todos' && totalPaginas > 1 ? `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; background: white; padding: 10px 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <span style="font-size: 0.9rem; color: #666;">
+                        Mostrando ${(paginaActualClientes - 1) * clientesPorPagina + 1} - ${Math.min(paginaActualClientes * clientesPorPagina, totalFiltrados)} de ${totalFiltrados} clientes
+                    </span>
+                    <div class="flex gap-10">
+                        <button class="btn btn-secondary btn-sm" onclick="cambiarPaginaClientes(${paginaActualClientes - 1})" ${paginaActualClientes === 1 ? 'disabled' : ''}>◀ Anterior</button>
+                        <span style="display: flex; align-items: center; font-weight: bold;">Pág. ${paginaActualClientes} / ${totalPaginas}</span>
+                        <button class="btn btn-secondary btn-sm" onclick="cambiarPaginaClientes(${paginaActualClientes + 1})" ${paginaActualClientes === totalPaginas ? 'disabled' : ''}>Siguiente ▶</button>
+                    </div>
+                </div>
+            ` : ''}
         </div>
     `;
 
@@ -330,12 +370,13 @@ function cambiarCategoriaRapida(id, nuevaCategoria) {
         cliente.ultimaModificacion = new Date().toISOString();
         guardarDatos(datos);
         mostrarNotificacion(`✅ ${cliente.nombre} asignado a "${nuevaCategoria}"`, 'success');
-        renderizarClientes(); // Refresca para actualizar el color y el filtro
+        renderizarClientes();
     }
 }
 
 function filtrarClientes(texto) {
     filtroBusquedaClientes = texto;
+    paginaActualClientes = 1; // Reiniciar a la página 1 al buscar
     renderizarClientes();
     const input = document.getElementById('buscador-clientes');
     if (input) {
@@ -346,6 +387,18 @@ function filtrarClientes(texto) {
 
 function filtrarCategoriaClientes(categoria) {
     filtroCategoriaClientes = categoria;
+    paginaActualClientes = 1; // Reiniciar a la página 1 al filtrar
+    renderizarClientes();
+}
+
+function cambiarClientesPorPagina(valor) {
+    clientesPorPagina = valor === 'todos' ? 'todos' : parseInt(valor);
+    paginaActualClientes = 1; // Reiniciar a la página 1
+    renderizarClientes();
+}
+
+function cambiarPaginaClientes(nuevaPagina) {
+    paginaActualClientes = nuevaPagina;
     renderizarClientes();
 }
 

@@ -1,10 +1,6 @@
 /**
  * ============================================================
- * MÓDULO: AMASADO (v5.1)
- * ============================================================
- * Cambios v5.1:
- *   - Corregido: Al aplicar a producción, solo se inyecta el 
- *     Stock de Bolas. El inventario por producto empieza a 0.
+ * MÓDULO: AMASADO (v6 - Resumen por Tipo y Comparativas)
  * ============================================================
  */
 
@@ -534,6 +530,7 @@ function renderizarOrdenAmasado(fechaParam) {
                             <button class="btn btn-primary btn-sm" onclick="cambiarVista('calculadoraMasa')" title="Abrir calculadora de masa">🧮 Calculadora</button>
                             <button class="btn btn-secondary btn-sm" onclick="abrirGestorTiposBola()" title="Gestionar tipos de bola">🔧 Tipos de bola</button>
                             <button class="btn btn-info btn-sm" onclick="abrirHistorialAmasados()" title="Ver historial de amasados" style="background: #17a2b8; color: white;">📜 Historial</button>
+                            <button class="btn btn-dark btn-sm" onclick="abrirHistoricoComparativas()" title="Comparativas de producción" style="background: #343a40; color: white;">📊 Estadísticas</button>
                             <span class="subtitle" style="font-weight: bold; color: ${orden.aplicadoAProduccion ? 'var(--success)' : 'var(--warning)'};">
                                 ${orden.aplicadoAProduccion ? '✅ Aplicado a producción' : '⏳ Pendiente de aplicar'}
                             </span>
@@ -654,13 +651,14 @@ function renderizarOrdenAmasado(fechaParam) {
                         </table>
                     </div>
 
+                    <!-- RESUMEN GENERAL -->
                     <div class="resumen-grid" style="margin-top: 20px;">
                         <div class="resumen-card">
                             <div class="label">Total Bolas</div>
                             <div class="value primary">${resumen.totalBolas}</div>
                         </div>
                         <div class="resumen-card">
-                            <div class="label">Peso Total</div>
+                            <div class="label">Peso Total Masa</div>
                             <div class="value">${resumen.pesoTotal} kg</div>
                         </div>
                         <div class="resumen-card">
@@ -671,6 +669,53 @@ function renderizarOrdenAmasado(fechaParam) {
                             <div class="label">Torres</div>
                             <div class="value">${resumen.totalTorres}</div>
                         </div>
+                    </div>
+
+                    <!-- DESGLOSE POR TIPO DE BOLA -->
+                    <div class="vista-header" style="margin-top: 20px;">
+                        <h3>📊 Resumen por Tipo de Bola</h3>
+                    </div>
+                    <div class="tabla-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tipo de Bola</th>
+                                    <th>Total Bolas</th>
+                                    <th>Total Cajas</th>
+                                    <th>Nº Torres</th>
+                                    <th>Peso Masa (kg)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${(() => {
+                                    const agrupado = {};
+                                    (orden.lineas || []).forEach(l => {
+                                        if (!agrupado[l.tipoBola]) {
+                                            agrupado[l.tipoBola] = { bolas: 0, cajas: 0, torres: 0, peso: 0 };
+                                        }
+                                        agrupado[l.tipoBola].bolas += (l.total || 0);
+                                        agrupado[l.tipoBola].cajas += (l.cajas || 0);
+                                        agrupado[l.tipoBola].torres += 1;
+                                        agrupado[l.tipoBola].peso += ((l.total || 0) * l.peso / 1000);
+                                    });
+
+                                    const filas = Object.keys(agrupado).map(tipo => {
+                                        const d = agrupado[tipo];
+                                        return `
+                                            <tr>
+                                                <td><strong>${escaparHTML(tipo)}</strong></td>
+                                                <td style="font-weight: bold; color: var(--primary);">${d.bolas}</td>
+                                                <td>${d.cajas}</td>
+                                                <td>${d.torres}</td>
+                                                <td>${redondear2(d.peso)} kg</td>
+                                            </tr>
+                                        `;
+                                    }).join('');
+
+                                    return filas || '<tr><td colspan="5" class="text-center" style="padding: 20px; color: #999;">No hay datos de amasado</td></tr>';
+                                })()}
+                            </tbody>
+                        </table>
                     </div>
 
                     ${!orden.aplicadoAProduccion ? `
@@ -984,7 +1029,6 @@ function aplicarOrdenAProduccionUI() {
             datos.produccion[fechaUso] = { inventarioInicial: {}, horasTrabajadas: 0, pedidos: [] };
         }
 
-        // INYECTAR EL STOCK DE BOLAS
         const stockBolas = {};
         orden.lineas.forEach(l => {
             const tipo = l.tipoBola;
@@ -993,8 +1037,6 @@ function aplicarOrdenAProduccionUI() {
         });
         datos.produccion[fechaUso].inventarioBolas = stockBolas;
 
-        // CORRECCIÓN: el inventario por producto empieza a 0. 
-        // Se irá llenando automáticamente a medida que entren pedidos.
         datos.produccion[fechaUso].inventarioInicial = {};
         datos.produccion[fechaUso].inventarioDesdeAmasado = true;
 
@@ -1112,7 +1154,7 @@ function exportarOrdenAmasado() {
 function abrirHistorialAmasados() {
     const datos = cargarDatos();
     const ordenes = datos.ordenesAmasado || {};
-    const fechas = Object.keys(ordenes).sort().reverse(); // Más recientes primero
+    const fechas = Object.keys(ordenes).sort().reverse();
 
     let filasHTML = '';
     
@@ -1131,7 +1173,6 @@ function abrirHistorialAmasados() {
             const fechaUsoFormat = formatearFecha(orden.fechaUso || fecha);
             const fechaAmasFormat = formatearFecha(fecha);
             
-            // Comprobar si está caducado (fecha de uso pasada y sin aplicar)
             const hoy = obtenerFechaActual();
             const caducado = !orden.aplicadoAProduccion && orden.fechaUso < hoy;
             
@@ -1199,10 +1240,143 @@ function borrarAmasadoDesdeHistorial(fecha) {
         delete datos.ordenesAmasado[fecha];
         guardarDatos(datos);
         cerrarHistorialAmasados();
-        abrirHistorialAmasados(); // Recargar modal
+        abrirHistorialAmasados();
         if (document.getElementById('fecha-amasado')?.value === fecha) {
-            renderizarOrdenAmasado(); // Recargar la vista si estábamos viendo ese
+            renderizarOrdenAmasado();
         }
         mostrarNotificacion('✅ Amasado eliminado', 'success');
     }
+}
+
+// ============================================================
+// 12. ESTADÍSTICAS Y COMPARATIVAS
+// ============================================================
+
+function abrirHistoricoComparativas() {
+    const datos = cargarDatos();
+    const ordenes = datos.ordenesAmasado || {};
+    const hoy = new Date();
+
+    // Filtros iniciales
+    let filtro = 'mes'; // 'dia', 'semana', 'mes', 'año'
+
+    // Calcular fechas de inicio según el filtro
+    function obtenerFechaInicio(tipo) {
+        const d = new Date(hoy);
+        if (tipo === 'dia') {
+            return new Date(d.setHours(0,0,0,0));
+        } else if (tipo === 'semana') {
+            const dia = d.getDay() || 7; // 1 (Lun) a 7 (Dom)
+            d.setDate(d.getDate() - dia + 1);
+            return new Date(d.setHours(0,0,0,0));
+        } else if (tipo === 'mes') {
+            return new Date(d.getFullYear(), d.getMonth(), 1);
+        } else if (tipo === 'año') {
+            return new Date(d.getFullYear(), 0, 1);
+        }
+        return d;
+    }
+
+    function generarTablaEstadisticas(filtroActual) {
+        const inicio = obtenerFechaInicio(filtroActual);
+        const inicioStr = inicio.toISOString().split('T')[0];
+        
+        let totalBolas = 0;
+        let totalTorres = 0;
+        let totalPeso = 0;
+        const porTipo = {};
+
+        Object.keys(ordenes).forEach(fecha => {
+            if (fecha >= inicioStr) {
+                const orden = ordenes[fecha];
+                const resumen = obtenerResumenOrdenAmasado(orden);
+                
+                totalBolas += resumen.totalBolas;
+                totalTorres += resumen.totalTorres;
+                totalPeso += resumen.pesoTotal;
+
+                // Agrupar por tipo de bola
+                (orden.lineas || []).forEach(l => {
+                    if (!porTipo[l.tipoBola]) {
+                        porTipo[l.tipoBola] = { bolas: 0, torres: 0, peso: 0 };
+                    }
+                    porTipo[l.tipoBola].bolas += (l.total || 0);
+                    porTipo[l.tipoBola].torres += 1;
+                    porTipo[l.tipoBola].peso += ((l.total || 0) * l.peso / 1000);
+                });
+            }
+        });
+
+        let filasTipo = Object.keys(porTipo).map(tipo => `
+            <tr>
+                <td><strong>${escaparHTML(tipo)}</strong></td>
+                <td style="color: var(--primary); font-weight: bold;">${porTipo[tipo].bolas} bolas</td>
+                <td>${porTipo[tipo].torres} torres</td>
+                <td>${redondear2(porTipo[tipo].peso)} kg masa</td>
+            </tr>
+        `).join('');
+
+        if (!filasTipo) {
+            filasTipo = '<tr><td colspan="4" class="text-center" style="padding: 20px; color: #999;">No hay datos en este periodo</td></tr>';
+        }
+
+        return `
+            <div class="resumen-grid" style="margin-bottom: 20px;">
+                <div class="resumen-card">
+                    <div class="label">Total Bolas</div>
+                    <div class="value primary">${totalBolas}</div>
+                </div>
+                <div class="resumen-card">
+                    <div class="label">Total Torres</div>
+                    <div class="value">${totalTorres}</div>
+                </div>
+                <div class="resumen-card">
+                    <div class="label">Peso Masa</div>
+                    <div class="value success">${redondear2(totalPeso)} kg</div>
+                </div>
+            </div>
+            
+            <div class="tabla-container" style="margin: 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tipo de Bola</th>
+                            <th>Bolas Producidas</th>
+                            <th>Nº Torres</th>
+                            <th>Peso Masa</th>
+                        </tr>
+                    </thead>
+                    <tbody>${filasTipo}</tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    const modalHTML = `
+        <div id="modal-comparativas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
+            <div style="background: white; padding: 25px; border-radius: 10px; max-width: 800px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <div class="flex-between" style="margin-bottom: 20px; border-bottom: 2px solid var(--primary); padding-bottom: 10px;">
+                    <h2 style="margin: 0; color: var(--secondary);">📊 Comparativas de Producción</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('modal-comparativas').remove()">✖ Cerrar</button>
+                </div>
+                
+                <div class="flex gap-10" style="margin-bottom: 20px;">
+                    <button class="btn btn-primary btn-sm" onclick="document.getElementById('contenedor-stats').innerHTML = generarTablaEstadisticas('dia')">Hoy</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('contenedor-stats').innerHTML = generarTablaEstadisticas('semana')">Esta Semana</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('contenedor-stats').innerHTML = generarTablaEstadisticas('mes')">Este Mes</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('contenedor-stats').innerHTML = generarTablaEstadisticas('año')">Este Año</button>
+                </div>
+
+                <div id="contenedor-stats">
+                    ${generarTablaEstadisticas('mes')}
+                </div>
+            </div>
+        </div>
+    `;
+
+    const previo = document.getElementById('modal-comparativas');
+    if (previo) previo.remove();
+    const div = document.createElement('div');
+    div.innerHTML = modalHTML;
+    document.body.appendChild(div.firstElementChild);
 }
